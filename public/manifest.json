@@ -1,0 +1,80 @@
+{
+  "name": "Catelaran Pro - Expense Tracker",
+  "short_name": "Catelaran",
+  "description": "Aplikasi pencatat pengeluaran dengan OCR dan sinkronisasi Google Sheets",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#059669",
+  "background_color": "#ffffff",
+  "categories": ["productivity", "finance"],
+  "screenshots": [
+    {
+      "src": "/screenshot-1.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshot-2.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan Struk",
+      "short_name": "Scan",
+      "description": "Scan struk belanja dengan kamera",
+      "url": "/?tab=scan",
+      "icons": [
+        {
+          "src": "/icon-scanner-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Input Manual",
+      "short_name": "Input",
+      "description": "Input pengeluaran manual",
+      "url": "/?tab=input",
+      "icons": [
+        {
+          "src": "/icon-input-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
