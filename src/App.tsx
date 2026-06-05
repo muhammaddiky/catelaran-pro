@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Trash2, Edit2, TrendingUp, TrendingDown, Calendar, Filter, BarChart3, 
   Home, Upload, Cloud, AlertCircle, CheckCircle, Loader, Eye, EyeOff, X,
-  PieChart, ArrowUpRight, ArrowDownLeft, DollarSign, Zap
+  PieChart, ArrowUpRight, ArrowDownLeft, DollarSign, Zap, Lightbulb, AlertTriangle
 } from 'lucide-react';
 
 interface Transaction {
@@ -175,6 +175,93 @@ export default function CatanKeuangan() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  // ========== FUNGSI AI FINANCIAL ADVICE ==========
+  const generateFinancialAdvice = () => {
+    const income = getMonthlyIncome();
+    const expense = getMonthlyExpense();
+    const savings = getSavings();
+    const savingsRate = income > 0 ? (savings / income) * 100 : 0;
+
+    const advice: string[] = [];
+
+    // Kategori pengeluaran terbesar
+    const expenseByCategory: Record<string, number> = {};
+    transactions
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        expenseByCategory[t.category] = (expenseByCategory[t.category] || 0) + t.amount;
+      });
+
+    const topExpense = Object.entries(expenseByCategory).sort((a, b) => b[1] - a[1])[0];
+
+    // Rule 1: Savings rate check
+    if (income === 0) {
+      advice.push('📝 Mulai catat pemasukan Anda untuk mendapatkan rekomendasi finansial yang lebih baik.');
+    } else if (savingsRate < 10) {
+      advice.push('⚠️ Tingkat tabungan Anda hanya ' + savingsRate.toFixed(1) + '%. Coba kurangi pengeluaran tidak penting hingga minimal 20% dari pemasukan.');
+    } else if (savingsRate < 20) {
+      advice.push('💡 Tingkat tabungan Anda ' + savingsRate.toFixed(1) + '%. Bagus, tapi bisa ditingkatkan lagi menjadi 30%.');
+    } else if (savingsRate >= 30) {
+      advice.push('🎯 Luar biasa! Anda sudah menabung ' + savingsRate.toFixed(1) + '% dari pendapatan. Pertahankan kebiasaan ini!');
+    }
+
+    // Rule 2: Expense check
+    if (expense > income && income > 0) {
+      const deficit = expense - income;
+      advice.push('🚨 Pengeluaran Anda melebihi pemasukan sebesar ' + formatCurrency(deficit) + '. Segera tinjau ulang pos pengeluaran Anda!');
+    }
+
+    // Rule 3: Top expense category warning
+    if (topExpense && topExpense[1] > income * 0.5) {
+      const categoryName = Object.values(expenseCategories).find(c => c.id === topExpense[0])?.name || topExpense[0];
+      advice.push('💸 ' + categoryName + ' menjadi pengeluaran terbesar Anda (' + formatCurrency(topExpense[1]) + '). Pastikan ini adalah prioritas utama!');
+    }
+
+    // Rule 4: No expense recorded
+    if (transactions.filter(t => t.type === 'expense').length === 0) {
+      advice.push('📊 Belum ada data pengeluaran. Mulai catat pengeluaran harian Anda untuk analisis yang lebih akurat.');
+    }
+
+    // Rule 5: Positive advice for good habits
+    if (income > 0 && expense > 0 && savingsRate >= 20 && expense <= income) {
+      advice.push('✨ Manajemen keuangan Anda sangat baik! Pertimbangkan untuk menginvestasikan tabungan Anda di instrumen yang menguntungkan.');
+    }
+
+    return advice.length > 0 ? advice : ['💭 Terus catat transaksi Anda untuk mendapatkan saran keuangan yang lebih akurat.'];
+  };
+
+  // Fungsi untuk get data kategori pengeluaran
+  const getExpensesByCategory = () => {
+    const data: Record<string, number> = {};
+    transactions
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        data[t.category] = (data[t.category] || 0) + t.amount;
+      });
+    return Object.entries(data).map(([cat, amount]) => ({
+      category: cat,
+      categoryName: expenseCategories[cat]?.name || cat,
+      amount,
+      percentage: (amount / getMonthlyExpense()) * 100,
+    })).sort((a, b) => b.amount - a.amount);
+  };
+
+  // Fungsi untuk get data kategori pemasukan
+  const getIncomeByCategory = () => {
+    const data: Record<string, number> = {};
+    transactions
+      .filter(t => t.type === 'income')
+      .forEach(t => {
+        data[t.category] = (data[t.category] || 0) + t.amount;
+      });
+    return Object.entries(data).map(([cat, amount]) => ({
+      category: cat,
+      categoryName: incomeCategories[cat]?.name || cat,
+      amount,
+      percentage: (amount / getMonthlyIncome()) * 100,
+    })).sort((a, b) => b.amount - a.amount);
   };
 
   const processReceiptImage = async (file: File) => {
@@ -353,108 +440,108 @@ export default function CatanKeuangan() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-slate-800 to-slate-900 text-white">
       {/* Header */}
-      <header className="bg-gradient-to-r from-blue-950 to-slate-900 border-b border-blue-700 shadow-lg p-4">
+      <header className="bg-gradient-to-r from-blue-950 to-slate-900 border-b border-blue-700 shadow-lg p-3 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <DollarSign className="w-8 h-8 text-green-400" />
-            <h1 className="text-2xl font-bold">Catat Keuangan</h1>
+            <DollarSign className="w-6 h-6 text-green-400" />
+            <h1 className="text-lg font-bold">Catat Keuangan</h1>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-4 pb-24">
+      <main className="max-w-4xl mx-auto px-3 pb-32">
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-4 py-4">
+            {/* Stats Cards - Mobile Friendly */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Pemasukan Bulan Ini - Hijau */}
-              <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-                <div className="flex justify-between items-start mb-4">
+              <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-4 shadow-lg">
+                <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="text-green-100 text-sm font-medium">Pemasukan</p>
+                    <p className="text-green-100 text-xs font-medium">Pemasukan</p>
                     <p className="text-green-50 text-xs">Bulan ini</p>
                   </div>
-                  <ArrowDownLeft className="w-5 h-5 text-green-100" />
+                  <ArrowDownLeft className="w-4 h-4 text-green-100" />
                 </div>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-xl font-bold text-white">
                   {formatCurrency(getMonthlyIncome())}
                 </p>
               </div>
 
               {/* Pengeluaran Bulan Ini - Merah */}
-              <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-                <div className="flex justify-between items-start mb-4">
+              <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-lg p-4 shadow-lg">
+                <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="text-red-100 text-sm font-medium">Pengeluaran</p>
+                    <p className="text-red-100 text-xs font-medium">Pengeluaran</p>
                     <p className="text-red-50 text-xs">Bulan ini</p>
                   </div>
-                  <ArrowUpRight className="w-5 h-5 text-red-100" />
+                  <ArrowUpRight className="w-4 h-4 text-red-100" />
                 </div>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-xl font-bold text-white">
                   {formatCurrency(getMonthlyExpense())}
                 </p>
               </div>
 
               {/* Tabungan */}
-              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-                <div className="flex justify-between items-start mb-4">
+              <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-4 shadow-lg">
+                <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="text-purple-100 text-sm font-medium">Tabungan</p>
+                    <p className="text-purple-100 text-xs font-medium">Tabungan</p>
                     <p className="text-purple-50 text-xs">Bulan ini</p>
                   </div>
-                  <Zap className="w-5 h-5 text-purple-100" />
+                  <Zap className="w-4 h-4 text-purple-100" />
                 </div>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-xl font-bold text-white">
                   {formatCurrency(getSavings())}
                 </p>
               </div>
 
               {/* Cash Flow */}
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow">
-                <div className="flex justify-between items-start mb-4">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-4 shadow-lg">
+                <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="text-blue-100 text-sm font-medium">Cash Flow</p>
-                    <p className="text-blue-50 text-xs">Negatif</p>
+                    <p className="text-blue-100 text-xs font-medium">Cash Flow</p>
+                    <p className="text-blue-50 text-xs">Status</p>
                   </div>
-                  <TrendingDown className="w-5 h-5 text-blue-100" />
+                  <TrendingDown className="w-4 h-4 text-blue-100" />
                 </div>
-                <p className="text-2xl font-bold text-white">
-                  {formatCurrency(getMonthlyExpense() > getMonthlyIncome() ? getMonthlyExpense() - getMonthlyIncome() : 0)}
+                <p className="text-xl font-bold text-white">
+                  {getSavings() > 0 ? '✅ Positif' : '⚠️ Negatif'}
                 </p>
               </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Quick Stats - White Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
               {/* Pengeluaran Card - Putih */}
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <div className="flex items-center gap-3 mb-4">
+              <div className="bg-white rounded-lg p-4 shadow-lg">
+                <div className="flex items-center gap-2 mb-3">
                   <div className="bg-red-100 p-2 rounded-lg">
-                    <TrendingDown className="w-5 h-5 text-red-600" />
+                    <TrendingDown className="w-4 h-4 text-red-600" />
                   </div>
                   <div>
                     <h3 className="text-gray-800 font-semibold text-sm">Pengeluaran</h3>
-                    <p className="text-gray-500 text-xs">Total pengeluaran bulan ini</p>
+                    <p className="text-gray-500 text-xs">Total bulan ini</p>
                   </div>
                 </div>
-                <p className="text-3xl font-bold text-red-600">
+                <p className="text-2xl font-bold text-red-600">
                   {formatCurrency(getMonthlyExpense())}
                 </p>
               </div>
 
               {/* Pemasukan Card - Putih */}
-              <div className="bg-white rounded-xl p-6 shadow-lg">
-                <div className="flex items-center gap-3 mb-4">
+              <div className="bg-white rounded-lg p-4 shadow-lg">
+                <div className="flex items-center gap-2 mb-3">
                   <div className="bg-green-100 p-2 rounded-lg">
-                    <TrendingUp className="w-5 h-5 text-green-600" />
+                    <TrendingUp className="w-4 h-4 text-green-600" />
                   </div>
                   <div>
                     <h3 className="text-gray-800 font-semibold text-sm">Pemasukan</h3>
-                    <p className="text-gray-500 text-xs">Total pemasukan bulan ini</p>
+                    <p className="text-gray-500 text-xs">Total bulan ini</p>
                   </div>
                 </div>
-                <p className="text-3xl font-bold text-green-600">
+                <p className="text-2xl font-bold text-green-600">
                   {formatCurrency(getMonthlyIncome())}
                 </p>
               </div>
@@ -464,14 +551,14 @@ export default function CatanKeuangan() {
 
         {/* Input Tab */}
         {activeTab === 'input' && (
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 shadow-lg">
-            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-              <Plus className="w-6 h-6" />
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-lg p-4 shadow-lg py-4">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <Plus className="w-5 h-5" />
               {editingId ? 'Edit' : 'Tambah'} Transaksi
             </h2>
 
             {/* Type Selector */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <button
                 onClick={() => {
                   setTransactionType('expense');
@@ -481,7 +568,7 @@ export default function CatanKeuangan() {
                     category: 'makanan',
                   }));
                 }}
-                className={`p-4 rounded-lg font-bold transition-all ${
+                className={`p-3 rounded-lg font-bold text-sm transition-all ${
                   transactionType === 'expense'
                     ? 'bg-red-500 scale-105 shadow-lg'
                     : 'bg-slate-700 hover:bg-slate-600'
@@ -498,7 +585,7 @@ export default function CatanKeuangan() {
                     category: 'gaji',
                   }));
                 }}
-                className={`p-4 rounded-lg font-bold transition-all ${
+                className={`p-3 rounded-lg font-bold text-sm transition-all ${
                   transactionType === 'income'
                     ? 'bg-green-500 scale-105 shadow-lg'
                     : 'bg-slate-700 hover:bg-slate-600'
@@ -509,25 +596,25 @@ export default function CatanKeuangan() {
             </div>
 
             {/* Form Fields */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* Date */}
               <div>
-                <label className="block text-sm font-medium mb-2">Tanggal</label>
+                <label className="block text-xs font-medium mb-1">Tanggal</label>
                 <input
                   type="date"
                   value={formData.date}
                   onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               {/* Category */}
               <div>
-                <label className="block text-sm font-medium mb-2">Kategori</label>
+                <label className="block text-xs font-medium mb-1">Kategori</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                 >
                   {Object.entries(getCategories()).map(([key, cat]) => (
                     <option key={key} value={key}>{cat.name}</option>
@@ -537,49 +624,49 @@ export default function CatanKeuangan() {
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium mb-2">Deskripsi</label>
+                <label className="block text-xs font-medium mb-1">Deskripsi</label>
                 <input
                   type="text"
                   value={formData.description}
                   onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                   placeholder={currentCategory ? descriptionPlaceholders[formData.type]?.[formData.category] : ''}
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               {/* Amount */}
               <div>
-                <label className="block text-sm font-medium mb-2">Nominal</label>
+                <label className="block text-xs font-medium mb-1">Nominal</label>
                 <input
                   type="number"
                   value={formData.amount}
                   onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                  placeholder="Masukkan nominal (tanpa Rp)"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                  placeholder="Masukkan nominal"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               {/* Notes */}
               <div>
-                <label className="block text-sm font-medium mb-2">Catatan</label>
+                <label className="block text-xs font-medium mb-1">Catatan (Opsional)</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Catatan tambahan (opsional)"
-                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 h-20 resize-none"
+                  placeholder="Catatan tambahan"
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 h-16 resize-none"
                 />
               </div>
 
               {/* Submit Button */}
               <button
                 onClick={handleAddTransaction}
-                className={`w-full p-3 rounded-lg font-bold transition-all ${
+                className={`w-full p-3 rounded-lg font-bold text-sm transition-all ${
                   transactionType === 'income'
                     ? 'bg-green-500 hover:bg-green-600'
                     : 'bg-red-500 hover:bg-red-600'
                 }`}
               >
-                {editingId ? '✏️ Update Transaksi' : '➕ Tambah Transaksi'}
+                {editingId ? '✏️ Update' : '➕ Tambah'} Transaksi
               </button>
 
               {editingId && (
@@ -596,9 +683,9 @@ export default function CatanKeuangan() {
                       notes: '',
                     });
                   }}
-                  className="w-full p-2 rounded-lg font-bold bg-slate-600 hover:bg-slate-700 transition-all"
+                  className="w-full p-2 rounded-lg font-bold text-sm bg-slate-600 hover:bg-slate-700 transition-all"
                 >
-                  ❌ Batal Edit
+                  ❌ Batal
                 </button>
               )}
             </div>
@@ -607,24 +694,24 @@ export default function CatanKeuangan() {
 
         {/* History Tab */}
         {activeTab === 'history' && (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold flex items-center gap-2 mb-6">
-              <Calendar className="w-6 h-6" />
+          <div className="space-y-3 py-4">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <Calendar className="w-5 h-5" />
               Riwayat Transaksi
             </h2>
 
             {/* Filters */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
               <input
                 type="date"
                 value={filterDate}
                 onChange={(e) => setFilterDate(e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               />
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500"
+                className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="">Semua Kategori</option>
                 {Object.entries({ ...incomeCategories, ...expenseCategories }).map(([key, cat]) => (
@@ -635,50 +722,61 @@ export default function CatanKeuangan() {
 
             {/* Transactions List */}
             {filteredTransactions.length === 0 ? (
-              <div className="bg-slate-800 rounded-lg p-8 text-center">
-                <p className="text-gray-400">Belum ada transaksi</p>
+              <div className="bg-slate-800 rounded-lg p-6 text-center">
+                <p className="text-gray-400 text-sm">Belum ada transaksi</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {filteredTransactions.map(transaction => {
-                  const category = getCategories()[transaction.category];
+                  // Fix bug: Get category dari tipe transaksi yang sesuai
+                  const categories = transaction.type === 'income' ? incomeCategories : expenseCategories;
+                  const category = categories[transaction.category];
+                  
                   return (
                     <div
                       key={transaction.id}
-                      className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-lg p-4 hover:from-slate-700 hover:to-slate-600 transition-all shadow-md"
+                      className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-lg p-3 hover:from-slate-700 hover:to-slate-600 transition-all shadow-md"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4 flex-1">
-                          <div className={`text-2xl p-3 rounded-lg ${category?.bgColor}`}>
-                            {category?.icon}
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold">{category?.name}</h3>
-                            <p className="text-sm text-gray-400">{transaction.description}</p>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          {category && (
+                            <div className={`text-lg p-2 rounded-lg flex-shrink-0 ${category.bgColor}`}>
+                              {category.icon}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-sm truncate">{category?.name}</h3>
+                            <p className="text-xs text-gray-400 truncate">{transaction.description}</p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {new Date(transaction.date).toLocaleDateString('id-ID')}
+                              {new Date(transaction.date).toLocaleDateString('id-ID', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric'
+                              })}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`text-lg font-bold ${
+                        <div className="text-right flex-shrink-0">
+                          <p className={`text-sm font-bold ${
                             transaction.type === 'income' ? 'text-green-400' : 'text-red-400'
                           }`}>
                             {transaction.type === 'income' ? '+' : '-'}
-                            {formatCurrency(transaction.amount)}
+                            {formatCurrency(transaction.amount).replace('Rp', '').trim()}
                           </p>
-                          <div className="flex gap-2 mt-2">
+                          <div className="flex gap-1 mt-2 justify-end">
                             <button
                               onClick={() => handleEditTransaction(transaction)}
                               className="p-1 hover:bg-slate-600 rounded transition-all"
+                              title="Edit"
                             >
-                              <Edit2 className="w-4 h-4 text-blue-400" />
+                              <Edit2 className="w-3 h-3 text-blue-400" />
                             </button>
                             <button
                               onClick={() => handleDeleteTransaction(transaction.id)}
                               className="p-1 hover:bg-slate-600 rounded transition-all"
+                              title="Hapus"
                             >
-                              <Trash2 className="w-4 h-4 text-red-400" />
+                              <Trash2 className="w-3 h-3 text-red-400" />
                             </button>
                           </div>
                         </div>
@@ -693,20 +791,21 @@ export default function CatanKeuangan() {
 
         {/* Analytics Tab */}
         {activeTab === 'analisis' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold flex items-center gap-2">
-              <BarChart3 className="w-6 h-6" />
+          <div className="space-y-4 py-4">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <BarChart3 className="w-5 h-5" />
               Analisis Keuangan
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-slate-800 rounded-xl p-6">
-                <p className="text-gray-400 text-sm mb-2">Total Transaksi</p>
-                <p className="text-3xl font-bold">{transactions.length}</p>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="bg-slate-800 rounded-lg p-3">
+                <p className="text-gray-400 text-xs mb-1">Total Transaksi</p>
+                <p className="text-2xl font-bold">{transactions.length}</p>
               </div>
-              <div className="bg-slate-800 rounded-xl p-6">
-                <p className="text-gray-400 text-sm mb-2">Rata-rata Pengeluaran</p>
-                <p className="text-3xl font-bold text-red-400">
+              <div className="bg-slate-800 rounded-lg p-3">
+                <p className="text-gray-400 text-xs mb-1">Rata-rata Pengeluaran</p>
+                <p className="text-lg font-bold text-red-400">
                   {formatCurrency(
                     transactions.filter(t => t.type === 'expense').length > 0
                       ? transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0) /
@@ -715,9 +814,9 @@ export default function CatanKeuangan() {
                   )}
                 </p>
               </div>
-              <div className="bg-slate-800 rounded-xl p-6">
-                <p className="text-gray-400 text-sm mb-2">Rata-rata Pemasukan</p>
-                <p className="text-3xl font-bold text-green-400">
+              <div className="bg-slate-800 rounded-lg p-3">
+                <p className="text-gray-400 text-xs mb-1">Rata-rata Pemasukan</p>
+                <p className="text-lg font-bold text-green-400">
                   {formatCurrency(
                     transactions.filter(t => t.type === 'income').length > 0
                       ? transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0) /
@@ -727,14 +826,126 @@ export default function CatanKeuangan() {
                 </p>
               </div>
             </div>
+
+            {/* Financial Advice Section */}
+            <div className="bg-gradient-to-br from-yellow-900 to-yellow-950 border border-yellow-700 rounded-lg p-4">
+              <h3 className="font-bold text-yellow-200 mb-3 flex items-center gap-2">
+                <Lightbulb className="w-4 h-4" />
+                💡 Saran Keuangan
+              </h3>
+              <div className="space-y-2">
+                {generateFinancialAdvice().map((advice, idx) => (
+                  <p key={idx} className="text-yellow-100 text-sm leading-relaxed">
+                    {advice}
+                  </p>
+                ))}
+              </div>
+            </div>
+
+            {/* Expense By Category */}
+            {getMonthlyExpense() > 0 && (
+              <div className="bg-slate-800 rounded-lg p-4">
+                <h3 className="font-bold mb-3 text-sm">📊 Pengeluaran per Kategori</h3>
+                <div className="space-y-2">
+                  {getExpensesByCategory().map((item, idx) => (
+                    <div key={idx}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs text-gray-300 truncate flex-1">
+                          {item.categoryName}
+                        </span>
+                        <span className="text-xs font-bold text-red-400 ml-2">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-red-500 to-red-600 h-full rounded-full"
+                          style={{ width: `${item.percentage}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{item.percentage.toFixed(1)}%</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Income By Category */}
+            {getMonthlyIncome() > 0 && (
+              <div className="bg-slate-800 rounded-lg p-4">
+                <h3 className="font-bold mb-3 text-sm">📈 Pemasukan per Kategori</h3>
+                <div className="space-y-2">
+                  {getIncomeByCategory().map((item, idx) => (
+                    <div key={idx}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs text-gray-300 truncate flex-1">
+                          {item.categoryName}
+                        </span>
+                        <span className="text-xs font-bold text-green-400 ml-2">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-green-500 to-green-600 h-full rounded-full"
+                          style={{ width: `${item.percentage}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{item.percentage.toFixed(1)}%</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Savings Rate Indicator */}
+            {getMonthlyIncome() > 0 && (
+              <div className="bg-slate-800 rounded-lg p-4">
+                <h3 className="font-bold mb-3 text-sm">🎯 Tingkat Tabungan</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-300">Tabungan</span>
+                    <span className="text-sm font-bold text-purple-400">
+                      {((getSavings() / getMonthlyIncome()) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-purple-500 to-purple-600 h-full rounded-full"
+                      style={{ width: `${((getSavings() / getMonthlyIncome()) * 100).toFixed(1)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Target ideal: 20-30% dari pemasukan bulanan
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Financial Status */}
+            <div className={`rounded-lg p-4 border ${
+              getSavings() > 0
+                ? 'bg-green-950 border-green-700'
+                : 'bg-red-950 border-red-700'
+            }`}>
+              <h3 className="font-bold mb-2 text-sm flex items-center gap-2">
+                {getSavings() > 0 ? '✅ Status Sehat' : '⚠️ Status Perlu Perhatian'}
+              </h3>
+              <p className={`text-sm ${getSavings() > 0 ? 'text-green-200' : 'text-red-200'}`}>
+                {getSavings() > 0
+                  ? `Selamat! Anda memiliki surplus sebesar ${formatCurrency(getSavings())}. Pertahankan kebiasaan finansial yang sehat ini.`
+                  : `Pengeluaran Anda melebihi pemasukan sebesar ${formatCurrency(Math.abs(getSavings()))}. Segera tinjau ulang pos pengeluaran.`
+                }
+              </p>
+            </div>
           </div>
         )}
 
         {/* Settings Tab */}
         {activeTab === 'settings' && (
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 shadow-lg space-y-6">
-            <h2 className="text-2xl font-bold">Pengaturan</h2>
-            <div className="space-y-4">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-lg p-4 shadow-lg space-y-4 py-4">
+            <h2 className="text-lg font-bold">⚙️ Pengaturan</h2>
+            <div className="space-y-3">
               <button
                 onClick={() => {
                   if (window.confirm('Yakin hapus semua data? Tindakan ini tidak bisa dibatalkan!')) {
@@ -742,7 +953,7 @@ export default function CatanKeuangan() {
                     alert('✅ Semua data telah dihapus');
                   }
                 }}
-                className="w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition-all"
+                className="w-full p-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-sm transition-all"
               >
                 🗑️ Hapus Semua Data
               </button>
@@ -751,63 +962,63 @@ export default function CatanKeuangan() {
         )}
       </main>
 
-      {/* Navigation Bar */}
+      {/* Navigation Bar - Mobile Optimized */}
       <nav className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-transparent border-t border-blue-700 shadow-2xl">
-        <div className="max-w-4xl mx-auto flex justify-around items-center h-20 px-4">
+        <div className="flex justify-around items-center h-16 px-2">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+            className={`flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-lg transition-all text-xs font-medium ${
               activeTab === 'dashboard'
                 ? 'bg-blue-600 scale-110'
                 : 'hover:bg-slate-700'
             }`}
           >
-            <Home className="w-6 h-6" />
-            <span className="text-xs font-medium">Dashboard</span>
+            <Home className="w-4 h-4" />
+            <span>Dashboard</span>
           </button>
           <button
             onClick={() => setActiveTab('input')}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+            className={`flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-lg transition-all text-xs font-medium ${
               activeTab === 'input'
                 ? 'bg-blue-600 scale-110'
                 : 'hover:bg-slate-700'
             }`}
           >
-            <Plus className="w-6 h-6" />
-            <span className="text-xs font-medium">Input</span>
+            <Plus className="w-4 h-4" />
+            <span>Input</span>
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+            className={`flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-lg transition-all text-xs font-medium ${
               activeTab === 'history'
                 ? 'bg-blue-600 scale-110'
                 : 'hover:bg-slate-700'
             }`}
           >
-            <Calendar className="w-6 h-6" />
-            <span className="text-xs font-medium">Riwayat</span>
+            <Calendar className="w-4 h-4" />
+            <span>Riwayat</span>
           </button>
           <button
             onClick={() => setActiveTab('analisis')}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+            className={`flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-lg transition-all text-xs font-medium ${
               activeTab === 'analisis'
                 ? 'bg-blue-600 scale-110'
                 : 'hover:bg-slate-700'
             }`}
           >
-            <BarChart3 className="w-6 h-6" />
-            <span className="text-xs font-medium">Analisis</span>
+            <BarChart3 className="w-4 h-4" />
+            <span>Analisis</span>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+            className={`flex flex-col items-center justify-center gap-0.5 px-3 py-2 rounded-lg transition-all text-xs font-medium ${
               activeTab === 'settings'
                 ? 'bg-blue-600 scale-110'
                 : 'hover:bg-slate-700'
             }`}
           >
-            <Filter className="w-6 h-6" />
-            <span className="text-xs font-medium">Setelan</span>
+            <Filter className="w-4 h-4" />
+            <span>Setelan</span>
           </button>
         </div>
       </nav>
