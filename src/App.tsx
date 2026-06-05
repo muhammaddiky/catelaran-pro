@@ -406,8 +406,10 @@ export default function CatanKeuangan() {
     if (editingId) {
       setTransactions(transactions.map(t => t.id === editingId ? newTransaction : t));
       setEditingId(null);
+      alert('✅ Transaksi berhasil diupdate!');
     } else {
       setTransactions([newTransaction, ...transactions]);
+      alert('✅ Transaksi berhasil ditambahkan!');
     }
 
     // Reset form
@@ -422,7 +424,8 @@ export default function CatanKeuangan() {
     });
     setScanResult(null);
 
-    alert('✅ Transaksi berhasil ditambahkan!');
+    // Auto redirect ke tab riwayat
+    setActiveTab('history');
   };
 
   const handleDeleteTransaction = (id: string) => {
