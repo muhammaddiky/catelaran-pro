@@ -177,6 +177,26 @@ export default function CatanKeuangan() {
     }).format(amount);
   };
 
+  // ========== FUNGSI FORMAT NOMINAL INPUT ==========
+  // Fungsi untuk format nominal dengan separator ribuan
+  const formatNominalDisplay = (amount: string) => {
+    if (!amount) return '';
+    // Remove semua non-digit
+    const numOnly = amount.replace(/\D/g, '');
+    if (!numOnly) return '';
+    // Format dengan separator ribuan
+    return 'Rp ' + parseInt(numOnly).toLocaleString('id-ID');
+  };
+
+  // Fungsi untuk handle input nominal (cleanup dan format)
+  const handleNominalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputValue = e.target.value;
+    // Remove semua non-digit untuk disimpan
+    const numOnly = inputValue.replace(/\D/g, '');
+    // Update state dengan hanya angka (untuk simpan)
+    setFormData(prev => ({ ...prev, amount: numOnly }));
+  };
+
   // ========== FUNGSI AI FINANCIAL ADVICE ==========
   const generateFinancialAdvice = () => {
     const income = getMonthlyIncome();
@@ -638,11 +658,12 @@ export default function CatanKeuangan() {
               <div>
                 <label className="block text-xs font-medium mb-1">Nominal</label>
                 <input
-                  type="number"
-                  value={formData.amount}
-                  onChange={(e) => setFormData(prev => ({ ...prev, amount: e.target.value }))}
-                  placeholder="Masukkan nominal"
+                  type="text"
+                  value={formatNominalDisplay(formData.amount)}
+                  onChange={handleNominalChange}
+                  placeholder="Rp 0"
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  inputMode="numeric"
                 />
               </div>
 
