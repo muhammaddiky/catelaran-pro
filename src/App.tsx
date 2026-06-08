@@ -501,15 +501,30 @@ export default function CatanKeuangan() {
 
   // Custom Pie Chart Label (responsive untuk mobile)
   const renderCustomizedLabel = (props: any) => {
-    const { x, y, value, name } = props;
-    const percentage = pieData.length > 0 ? ((value / pieData.reduce((sum, d) => sum + d.value, 0)) * 100).toFixed(0) : 0;
-    if (parseInt(percentage) < 5) return null; // Hide label if too small
-    return (
-      <text x={x} y={y} fill={isDark ? '#fff' : '#1e293b'} textAnchor="middle" dominantBaseline="central" fontSize={10} fontWeight="600">
-        {percentage}%
-      </text>
-    );
-  };
+  const { x, y, value } = props;
+  const total = pieData.reduce((sum, d) => sum + d.value, 0);
+  const percentage = total > 0 ? ((value / total) * 100).toFixed(0) : 0;
+  
+  // Hide label kalau persentase terlalu kecil (< 8%)
+  if (parseInt(percentage) < 8) return null;
+  
+  return (
+    <text 
+      x={x} 
+      y={y} 
+      fill={isDark ? '#fff' : '#1e293b'} 
+      textAnchor="middle" 
+      dominantBaseline="central" 
+      fontSize={11} 
+      fontWeight="700"
+      style={{ 
+        textShadow: isDark ? '0 1px 2px rgba(0,0,0,0.8)' : '0 1px 2px rgba(255,255,255,0.8)'
+      }}
+    >
+      {percentage}%
+    </text>
+  );
+};
 
   // Custom Legend untuk Pie Chart (compact mobile)
   const renderPieLegend = (props: any) => {
@@ -624,29 +639,31 @@ export default function CatanKeuangan() {
               </div>
 
               {pieData.length > 0 && (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                  <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white">📊 Breakdown Bulan Ini</h3>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <RePieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={45}
-                        outerRadius={75}
-                        paddingAngle={2}
-                        dataKey="value"
-                        label={renderCustomizedLabel}
-                        labelLine={false}
-                      >
-                        {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip />} />
-                      <Legend content={renderPieLegend} />
-                    </RePieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
+  <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-md">
+    <h3 className="font-bold text-sm mb-2 px-1 text-slate-900 dark:text-white">📊 Breakdown Bulan Ini</h3>
+    <div style={{ width: '100%', height: 240, overflow: 'visible' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <RePieChart margin={{ top: 15, right: 25, left: 25, bottom: 15 }}>
+          <Pie
+            data={pieData}
+            cx="50%"
+            cy="50%"
+            innerRadius={40}
+            outerRadius={65}
+            paddingAngle={2}
+            dataKey="value"
+            label={renderCustomizedLabel}
+            labelLine={false}
+          >
+            {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+          </Pie>
+          <Tooltip content={<CustomTooltip />} />
+          <Legend content={renderPieLegend} />
+        </RePieChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+)}
 
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
                 <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white">📈 6 Bulan Terakhir</h3>
