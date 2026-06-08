@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import {
   PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, LineChart, Line
 } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { format, differenceInDays } from 'date-fns';
@@ -998,93 +998,550 @@ export default function CatanKeuangan() {
                 </div>
               </div>
 
-              {/* ANALISIS */}
-              {activeMoreTab === 'analisis' && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-sm">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Total Transaksi</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">{transactions.length}</p>
-                    </div>
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-sm">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Avg Pengeluaran</p>
-                      <p className="text-sm font-bold text-red-500">
-                        {formatCurrency(transactions.filter(t => t.type === 'expense').length > 0 ? transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0) / transactions.filter(t => t.type === 'expense').length : 0)}
-                      </p>
-                    </div>
-                  </div>
+              {/* ANALISIS - FINANCIAL INTELLIGENCE CENTER */}
+{activeMoreTab === 'analisis' && (
+  <div className="space-y-3">
+    {/* ===== 1. FINANCIAL HEALTH SCORE ===== */}
+    {(() => {
+      // Hitung skor kesehatan finansial
+      const savingsRate = monthlyIncome > 0 ? (savings / monthlyIncome) * 100 : 0;
+      const budgetCompliance = budgets.length > 0
+        ? (budgets.filter(b => (monthlySpending[b.category] || 0) <= b.limit).length / budgets.length) * 100
+        : 50; // Netral kalau belum ada budget
+      
+      // Konsistensi (berapa hari dalam 30 hari terakhir ada transaksi)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const activeDays = new Set(
+        transactions
+          .filter(t => new Date(t.date) >= thirtyDaysAgo)
+          .map(t => t.date)
+      ).size;
+      const consistencyScore = (activeDays / 30) * 100;
+      
+      // Score calculation (weighted)
+      const score = Math.min(100, Math.round(
+        savingsRate * 0.4 +
+        budgetCompliance * 0.35 +
+        consistencyScore * 0.25
+      ));
+      
+      const getScoreInfo = (s: number) => {
+        if (s >= 80) return { label: 'Excellent', color: 'text-green-500', bg: 'from-green-500 to-emerald-500', emoji: '🏆' };
+        if (s >= 60) return { label: 'Baik', color: 'text-blue-500', bg: 'from-blue-500 to-cyan-500', emoji: '✨' };
+        if (s >= 40) return { label: 'Cukup', color: 'text-yellow-500', bg: 'from-yellow-500 to-orange-500', emoji: '⚡' };
+        return { label: 'Perlu Perhatian', color: 'text-red-500', bg: 'from-red-500 to-pink-500', emoji: '⚠️' };
+      };
+      
+      const info = getScoreInfo(score);
+      
+      return (
+        <div className={`bg-gradient-to-br ${info.bg} rounded-2xl p-4 shadow-lg`}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
+              <span className="text-xl">{info.emoji}</span> Skor Finansial
+            </h3>
+            <span className="text-[10px] bg-white/20 backdrop-blur px-2 py-0.5 rounded-full text-white font-medium">
+              Bulan Ini
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-3 mb-3">
+            <div className="relative w-20 h-20 flex-shrink-0">
+              <svg className="w-20 h-20 transform -rotate-90">
+                <circle cx="40" cy="40" r="32" stroke="rgba(255,255,255,0.2)" strokeWidth="6" fill="none" />
+                <circle cx="40" cy="40" r="32" stroke="white" strokeWidth="6" fill="none"
+                  strokeDasharray={`${2 * Math.PI * 32}`}
+                  strokeDashoffset={`${2 * Math.PI * 32 * (1 - score / 100)}`}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-2xl font-bold text-white">{score}</span>
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-white font-bold text-lg">{info.label}</p>
+              <p className="text-white/80 text-[11px] leading-snug">
+                {score >= 80 ? 'Keuangan Anda sangat sehat!' :
+                 score >= 60 ? 'Terus pertahankan kebiasaan baik!' :
+                 score >= 40 ? 'Ada ruang untuk improvement.' :
+                 'Saatnya evaluasi keuangan.'}
+              </p>
+            </div>
+          </div>
+          
+          <div className="space-y-1.5 bg-white/10 backdrop-blur rounded-xl p-2.5">
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-white/90">💰 Savings Rate</span>
+              <span className="font-bold text-white">{savingsRate.toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-white/90">📊 Budget Compliance</span>
+              <span className="font-bold text-white">{budgetCompliance.toFixed(0)}%</span>
+            </div>
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-white/90">📅 Konsistensi</span>
+              <span className="font-bold text-white">{activeDays}/30 hari</span>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
 
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                    <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white">📈 6 Bulan</h3>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={barData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fontSize: 10, fill: isDark ? '#94a3b8' : '#64748b' }}
-                          axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 9, fill: isDark ? '#94a3b8' : '#64748b' }}
-                          axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
-                          tickLine={false}
-                          tickFormatter={v => formatCompact(v)}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend content={renderBarLegend} />
-                        <Bar dataKey="Pemasukan" fill="#10b981" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="Pengeluaran" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+    {/* ===== 2. MONTH-OVER-MONTH COMPARISON ===== */}
+    {(() => {
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      
+      const getMonthData = (date: Date) => {
+        const month = date.getMonth();
+        const year = date.getFullYear();
+        const monthTrans = transactions.filter(t => {
+          const d = new Date(t.date);
+          return d.getMonth() === month && d.getFullYear() === year;
+        });
+        return {
+          income: monthTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0),
+          expense: monthTrans.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
+        };
+      };
+      
+      const thisMonth = getMonthData(now);
+      const prevMonth = getMonthData(lastMonth);
+      
+      const calcChange = (curr: number, prev: number) => {
+        if (prev === 0) return curr > 0 ? 100 : 0;
+        return ((curr - prev) / prev) * 100;
+      };
+      
+      const incomeChange = calcChange(thisMonth.income, prevMonth.income);
+      const expenseChange = calcChange(thisMonth.expense, prevMonth.expense);
+      const savingsChange = calcChange(
+        thisMonth.income - thisMonth.expense,
+        prevMonth.income - prevMonth.expense
+      );
+      
+      // Cari kategori dengan perubahan terbesar
+      const categoryChanges: { name: string; change: number; icon: string }[] = [];
+      Object.keys(expenseCategories).forEach(cat => {
+        const thisMonthCat = transactions
+          .filter(t => {
+            const d = new Date(t.date);
+            return t.type === 'expense' && t.category === cat &&
+                   d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          })
+          .reduce((s, t) => s + t.amount, 0);
+        const prevMonthCat = transactions
+          .filter(t => {
+            const d = new Date(t.date);
+            return t.type === 'expense' && t.category === cat &&
+                   d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
+          })
+          .reduce((s, t) => s + t.amount, 0);
+        if (prevMonthCat > 0 || thisMonthCat > 0) {
+          categoryChanges.push({
+            name: expenseCategories[cat].name,
+            change: thisMonthCat - prevMonthCat,
+            icon: expenseCategories[cat].icon,
+          });
+        }
+      });
+      
+      const topIncrease = categoryChanges.sort((a, b) => b.change - a.change)[0];
+      const topDecrease = categoryChanges.sort((a, b) => a.change - b.change)[0];
+      
+      const ChangeIndicator = ({ value, invert = false }: { value: number; invert?: boolean }) => {
+        const isPositive = value > 0;
+        const good = invert ? !isPositive : isPositive;
+        return (
+          <span className={`flex items-center gap-0.5 text-[11px] font-bold ${good ? 'text-green-500' : 'text-red-500'}`}>
+            {isPositive ? '▲' : value < 0 ? '▼' : '•'}
+            {Math.abs(value).toFixed(0)}%
+          </span>
+        );
+      };
+      
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+          <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+            📈 Perbandingan Bulan Lalu
+          </h3>
+          
+          <div className="space-y-2.5 mb-3">
+            <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Pemasukan</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white">{formatCurrency(thisMonth.income)}</p>
+              </div>
+              <ChangeIndicator value={incomeChange} />
+            </div>
+            <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Pengeluaran</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white">{formatCurrency(thisMonth.expense)}</p>
+              </div>
+              <ChangeIndicator value={expenseChange} invert />
+            </div>
+            <div className="flex justify-between items-center p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+              <div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">Tabungan</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white">{formatCurrency(thisMonth.income - thisMonth.expense)}</p>
+              </div>
+              <ChangeIndicator value={savingsChange} />
+            </div>
+          </div>
+          
+          {topIncrease && topIncrease.change > 0 && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2.5 mb-2">
+              <p className="text-[11px] text-red-700 dark:text-red-300 font-semibold mb-0.5">🔍 Pemicu Kenaikan</p>
+              <p className="text-xs text-red-900 dark:text-red-200">
+                {topIncrease.icon} {topIncrease.name} naik <span className="font-bold">{formatCurrency(topIncrease.change)}</span>
+              </p>
+            </div>
+          )}
+          
+          {topDecrease && topDecrease.change < 0 && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-2.5">
+              <p className="text-[11px] text-green-700 dark:text-green-300 font-semibold mb-0.5">🎉 Penghematan</p>
+              <p className="text-xs text-green-900 dark:text-green-200">
+                {topDecrease.icon} {topDecrease.name} turun <span className="font-bold">{formatCurrency(Math.abs(topDecrease.change))}</span>
+              </p>
+            </div>
+          )}
+        </div>
+      );
+    })()}
 
-                  {monthlyIncome > 0 && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                      <h3 className="font-bold text-sm mb-2 text-slate-900 dark:text-white">🎯 Tingkat Tabungan</h3>
-                      <div className="flex justify-between mb-1.5">
-                        <span className="text-xs text-slate-600 dark:text-slate-400">Progress</span>
-                        <span className="text-xs font-bold text-purple-500">{((savings / monthlyIncome) * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-                        <div className="bg-gradient-to-r from-purple-500 to-pink-500 h-full rounded-full" style={{ width: `${Math.min(((savings / monthlyIncome) * 100), 100)}%` }} />
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">Target ideal: 20-30%</p>
-                    </div>
-                  )}
+    {/* ===== 3. CALENDAR HEATMAP ===== */}
+    {(() => {
+      const now = new Date();
+      const daysToShow = 35; // 5 minggu
+      const days: { date: Date; amount: number; count: number }[] = [];
+      
+      for (let i = daysToShow - 1; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayTrans = transactions.filter(t => t.date === dateStr && t.type === 'expense');
+        days.push({
+          date,
+          amount: dayTrans.reduce((s, t) => s + t.amount, 0),
+          count: dayTrans.length,
+        });
+      }
+      
+      const maxAmount = Math.max(...days.map(d => d.amount), 1);
+      
+      const getColor = (amount: number) => {
+        if (amount === 0) return isDark ? 'bg-slate-700' : 'bg-slate-200';
+        const ratio = amount / maxAmount;
+        if (ratio < 0.25) return 'bg-green-300 dark:bg-green-700';
+        if (ratio < 0.5) return 'bg-yellow-300 dark:bg-yellow-600';
+        if (ratio < 0.75) return 'bg-orange-400 dark:bg-orange-600';
+        return 'bg-red-500 dark:bg-red-600';
+      };
+      
+      // Cari pola hari
+      const dayTotals = [0, 0, 0, 0, 0, 0, 0];
+      const dayCounts = [0, 0, 0, 0, 0, 0, 0];
+      transactions.filter(t => t.type === 'expense').forEach(t => {
+        const day = new Date(t.date).getDay();
+        dayTotals[day] += t.amount;
+        dayCounts[day]++;
+      });
+      const dayAvg = dayTotals.map((t, i) => dayCounts[i] > 0 ? t / dayCounts[i] : 0);
+      const maxDayAvg = Math.max(...dayAvg);
+      const mostExpensiveDay = dayAvg.indexOf(maxDayAvg);
+      const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+          <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+            🗓️ Pola Pengeluaran (35 Hari)
+          </h3>
+          
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {['M', 'S', 'S', 'R', 'K', 'J', 'S'].map((d, i) => (
+              <div key={i} className="text-[9px] text-center text-slate-500 dark:text-slate-400 font-medium">
+                {d}
+              </div>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-7 gap-1">
+            {days.map((day, i) => (
+              <div
+                key={i}
+                className={`aspect-square rounded ${getColor(day.amount)} transition-all`}
+                title={`${format(day.date, 'dd MMM')}: ${formatCurrency(day.amount)} (${day.count} trans)`}
+              />
+            ))}
+          </div>
+          
+          <div className="flex items-center justify-between mt-3 text-[10px]">
+            <div className="flex items-center gap-1">
+              <span className="text-slate-500 dark:text-slate-400">Hemat</span>
+              <div className="w-3 h-3 rounded bg-green-300 dark:bg-green-700" />
+              <div className="w-3 h-3 rounded bg-yellow-300 dark:bg-yellow-600" />
+              <div className="w-3 h-3 rounded bg-orange-400 dark:bg-orange-600" />
+              <div className="w-3 h-3 rounded bg-red-500 dark:bg-red-600" />
+              <span className="text-slate-500 dark:text-slate-400">Boros</span>
+            </div>
+          </div>
+          
+          {transactions.length > 0 && (
+            <div className="mt-3 p-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold mb-0.5">💡 Insight Pola</p>
+              <p className="text-xs text-blue-900 dark:text-blue-200">
+                Anda paling boros di hari <span className="font-bold">{dayNames[mostExpensiveDay]}</span> (rata-rata {formatCurrency(maxDayAvg)}/transaksi)
+              </p>
+            </div>
+          )}
+        </div>
+      );
+    })()}
 
-                  {/* STATUS BOX - FIXED LIGHT/DARK CONTRAST */}
-                  <div className={`rounded-2xl p-4 border-2 ${
-                    savings > 0
-                      ? 'bg-green-500 dark:bg-green-900/40 border-green-600 dark:border-green-700'
-                      : 'bg-red-500 dark:bg-red-900/40 border-red-600 dark:border-red-700'
-                  }`}>
-                    <div className="flex items-start gap-2">
-                      <div className="text-2xl">{savings > 0 ? '✅' : '⚠️'}</div>
-                      <div className="flex-1">
-                        <h3 className="font-bold text-white mb-1 text-sm">
-                          {savings > 0 ? 'Status Keuangan Sehat' : 'Status Perlu Perhatian'}
-                        </h3>
-                        <p className="text-xs text-white/95 leading-relaxed">
-                          {savings > 0
-                            ? `Surplus ${formatCurrency(savings)} bulan ini. Pertahankan!`
-                            : `Defisit ${formatCurrency(Math.abs(savings))}. Tinjau pengeluaran Anda.`
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+    {/* ===== 4. SMART ANOMALY DETECTION ===== */}
+    {(() => {
+      const expenseTrans = transactions.filter(t => t.type === 'expense');
+      if (expenseTrans.length < 5) {
+        return (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+            <h3 className="font-bold text-sm mb-2 text-slate-900 dark:text-white flex items-center gap-1.5">
+              🔍 Deteksi Anomali
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-4">
+              Butuh minimal 5 transaksi untuk analisis anomali
+            </p>
+          </div>
+        );
+      }
+      
+      const avgAmount = expenseTrans.reduce((s, t) => s + t.amount, 0) / expenseTrans.length;
+      
+      // Anomali 1: Transaksi > 2.5x rata-rata
+      const outliers = expenseTrans
+        .filter(t => t.amount > avgAmount * 2.5)
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 3);
+      
+      // Anomali 2: Kategori naik drastis bulan ini
+      const now = new Date();
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const categorySpikes: { name: string; icon: string; increase: number }[] = [];
+      
+      Object.keys(expenseCategories).forEach(cat => {
+        const thisMonth = expenseTrans
+          .filter(t => {
+            const d = new Date(t.date);
+            return t.category === cat && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          })
+          .reduce((s, t) => s + t.amount, 0);
+        const prevMonth = expenseTrans
+          .filter(t => {
+            const d = new Date(t.date);
+            return t.category === cat && d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
+          })
+          .reduce((s, t) => s + t.amount, 0);
+        
+        if (prevMonth > 0 && thisMonth > prevMonth * 1.5) {
+          categorySpikes.push({
+            name: expenseCategories[cat].name,
+            icon: expenseCategories[cat].icon,
+            increase: ((thisMonth - prevMonth) / prevMonth) * 100,
+          });
+        }
+      });
+      
+      // Anomali 3: Transaksi malam hari (jam 22:00-04:00)
+      const nightTrans = expenseTrans.filter(t => {
+        const hour = new Date(t.createdAt).getHours();
+        return hour >= 22 || hour < 4;
+      });
+      const nightPercentage = (nightTrans.length / expenseTrans.length) * 100;
+      
+      const anomalies = [
+        ...outliers.map(o => ({
+          type: 'outlier' as const,
+          title: 'Transaksi Tidak Biasa',
+          desc: `${expenseCategories[o.category]?.icon || '💸'} ${o.description} - ${formatCurrency(o.amount)} (${(o.amount / avgAmount).toFixed(1)}x rata-rata)`,
+          severity: o.amount > avgAmount * 4 ? 'high' : 'medium',
+        })),
+        ...categorySpikes.map(s => ({
+          type: 'spike' as const,
+          title: 'Kategori Melonjak',
+          desc: `${s.icon} ${s.name} naik ${s.increase.toFixed(0)}% dari bulan lalu`,
+          severity: s.increase > 200 ? 'high' : 'medium',
+        })),
+        ...(nightPercentage > 30 ? [{
+          type: 'pattern' as const,
+          title: 'Pola Belanja Malam',
+          desc: `${nightPercentage.toFixed(0)}% transaksi dilakukan jam 22:00-04:00 (potensi impulse buying)`,
+          severity: 'medium' as const,
+        }] : []),
+      ].slice(0, 4);
+      
+      if (anomalies.length === 0) {
+        return (
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-4 shadow-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">🎯</span>
+              <h3 className="font-bold text-sm text-white">Pola Keuangan Normal</h3>
+            </div>
+            <p className="text-xs text-white/90 leading-relaxed">
+              Tidak ada anomali terdeteksi. Pola pengeluaran Anda stabil dan terprediksi!
+            </p>
+          </div>
+        );
+      }
+      
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+          <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+            🚨 Deteksi Anomali
+            <span className="ml-auto bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
+              {anomalies.length} ditemukan
+            </span>
+          </h3>
+          
+          <div className="space-y-2">
+            {anomalies.map((a, i) => (
+              <div
+                key={i}
+                className={`p-2.5 rounded-lg border-l-4 ${
+                  a.severity === 'high'
+                    ? 'bg-red-50 dark:bg-red-900/20 border-red-500'
+                    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-500'
+                }`}
+              >
+                <p className="text-[11px] font-bold text-slate-900 dark:text-white mb-0.5">
+                  {a.severity === 'high' ? '🚨' : '⚠️'} {a.title}
+                </p>
+                <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-snug">{a.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    })()}
 
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                    <h3 className="font-bold text-sm mb-2 text-slate-900 dark:text-white flex items-center gap-1.5">
-                      <Lightbulb className="w-4 h-4 text-amber-500" /> Saran AI
-                    </h3>
-                    <div className="space-y-1.5">
-                      {generateAdvice().map((a, i) => <p key={i} className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">{a}</p>)}
-                    </div>
-                  </div>
-                </div>
-              )}
+    {/* ===== 5. 12-MONTH TREND LINE CHART ===== */}
+    {(() => {
+      const now = new Date();
+      const monthsData: Record<string, { income: number; expense: number; savings: number }> = {};
+      
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthsData[key] = { income: 0, expense: 0, savings: 0 };
+      }
+      
+      transactions.forEach(t => {
+        const d = new Date(t.date);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (monthsData[key]) {
+          if (t.type === 'income') monthsData[key].income += t.amount;
+          else monthsData[key].expense += t.amount;
+        }
+      });
+      
+      const trendData = Object.entries(monthsData).map(([k, v]) => ({
+        name: format(new Date(k + '-01'), 'MMM', { locale: id }),
+        Tabungan: v.income - v.expense,
+        Pemasukan: v.income,
+        Pengeluaran: v.expense,
+      }));
+      
+      const totalIncome = trendData.reduce((s, d) => s + d.Pemasukan, 0);
+      const totalExpense = trendData.reduce((s, d) => s + d.Pengeluaran, 0);
+      const totalSavings = totalIncome - totalExpense;
+      const savingsGrowth = trendData.length >= 2
+        ? ((trendData[trendData.length - 1].Tabungan - trendData[0].Tabungan) / Math.max(Math.abs(trendData[0].Tabungan), 1)) * 100
+        : 0;
+      
+      const maxMonth = trendData.reduce((max, d) => d.Pengeluaran > max.Pengeluaran ? d : max, trendData[0]);
+      const minMonth = trendData.filter(d => d.Pengeluaran > 0).reduce((min, d) => d.Pengeluaran < min.Pengeluaran ? d : min, trendData[0]);
+      
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+          <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+            📊 Tren 12 Bulan Terakhir
+          </h3>
+          
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={trendData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: isDark ? '#94a3b8' : '#64748b' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: isDark ? '#94a3b8' : '#64748b' }} tickLine={false} tickFormatter={v => formatCompact(v)} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Line type="monotone" dataKey="Pemasukan" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="Pengeluaran" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="Tabungan" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2 }} strokeDasharray="5 5" />
+            </LineChart>
+          </ResponsiveContainer>
+          
+          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Total Income</p>
+              <p className="text-xs font-bold text-green-500">{formatCompact(totalIncome)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Total Expense</p>
+              <p className="text-xs font-bold text-red-500">{formatCompact(totalExpense)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">Net Savings</p>
+              <p className={`text-xs font-bold ${totalSavings >= 0 ? 'text-purple-500' : 'text-red-500'}`}>
+                {formatCompact(totalSavings)}
+              </p>
+            </div>
+          </div>
+          
+          <div className="space-y-1.5 mt-3">
+            {maxMonth && maxMonth.Pengeluaran > 0 && (
+              <div className="flex items-center gap-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                <span className="text-sm">📈</span>
+                <p className="text-[11px] text-slate-700 dark:text-slate-300 flex-1">
+                  Bulan terboros: <span className="font-bold">{maxMonth.name}</span> ({formatCompact(maxMonth.Pengeluaran)})
+                </p>
+              </div>
+            )}
+            {minMonth && minMonth.Pengeluaran > 0 && minMonth !== maxMonth && (
+              <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <span className="text-sm">📉</span>
+                <p className="text-[11px] text-slate-700 dark:text-slate-300 flex-1">
+                  Bulan terhemat: <span className="font-bold">{minMonth.name}</span> ({formatCompact(minMonth.Pengeluaran)})
+                </p>
+              </div>
+            )}
+            {Math.abs(savingsGrowth) > 10 && (
+              <div className={`flex items-center gap-2 p-2 rounded-lg ${savingsGrowth > 0 ? 'bg-purple-50 dark:bg-purple-900/20' : 'bg-orange-50 dark:bg-orange-900/20'}`}>
+                <span className="text-sm">{savingsGrowth > 0 ? '🚀' : '⚠️'}</span>
+                <p className="text-[11px] text-slate-700 dark:text-slate-300 flex-1">
+                  Tren tabungan: <span className="font-bold">{savingsGrowth > 0 ? 'Naik' : 'Turun'} {Math.abs(savingsGrowth).toFixed(0)}%</span> YoY
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    })()}
+
+    {/* ===== 6. SARAN AI (dipertahankan) ===== */}
+    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+      <h3 className="font-bold text-sm mb-2 text-slate-900 dark:text-white flex items-center gap-1.5">
+        <Lightbulb className="w-4 h-4 text-amber-500" /> Saran AI
+      </h3>
+      <div className="space-y-1.5">
+        {generateAdvice().map((a, i) => <p key={i} className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">{a}</p>)}
+      </div>
+    </div>
+  </div>
+)}
 
               {/* BUDGET */}
               {activeMoreTab === 'budget' && (
