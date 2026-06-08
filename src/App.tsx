@@ -152,7 +152,9 @@ export default function CatanKeuangan() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [activeMoreTab, setActiveMoreTab] = useState<MoreTab>('analisis');
   const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
-  const [filterDate, setFilterDate] = useState('');
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('month');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('keuangan_scriptUrl') || '');
@@ -418,13 +420,56 @@ export default function CatanKeuangan() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const filteredTransactions = useMemo(() =>
-    transactions
-      .filter(t => !filterDate || t.date === filterDate)
-      .filter(t => !filterCategory || t.category === filterCategory)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-    [transactions, filterDate, filterCategory]
-  );
+  const filteredTransactions = useMemo(() => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  let startDate: Date | null = null;
+  let endDate: Date | null = null;
+
+  switch (periodFilter) {
+    case 'today':
+      startDate = today;
+      endDate = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+      break;
+    case 'week':
+      // Senin - Minggu (ISO week)
+      const dayOfWeek = today.getDay();
+      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startDate = new Date(today);
+      startDate.setDate(today.getDate() - diffToMonday);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      break;
+    case 'year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      break;
+    case 'custom':
+      if (customStartDate) startDate = new Date(customStartDate);
+      if (customEndDate) endDate = new Date(customEndDate + 'T23:59:59.999');
+      break;
+    case 'all':
+    default:
+      startDate = null;
+      endDate = null;
+  }
+
+  return transactions
+    .filter(t => {
+      const d = new Date(t.date);
+      if (startDate && d < startDate) return false;
+      if (endDate && d > endDate) return false;
+      return true;
+    })
+    .filter(t => !filterCategory || t.category === filterCategory)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory]);
 
   const getCategories = () => transactionType === 'income' ? incomeCategories : expenseCategories;
   const currentCategory = getCategories()[formData.category];
@@ -786,59 +831,146 @@ export default function CatanKeuangan() {
           )}
 
           {/* HISTORY */}
-          {activeTab === 'history' && (
-            <div className="space-y-3">
-              <h2 className="text-lg font-bold flex items-center gap-2 text-slate-900 dark:text-white">📅 Riwayat</h2>
+{activeTab === 'history' && (
+  <div className="space-y-3">
+    <h2 className="text-lg font-bold flex items-center gap-2 text-slate-900 dark:text-white">📅 Riwayat</h2>
 
-              <div className="grid grid-cols-2 gap-2">
-                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
-                <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
-                  className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500">
-                  <option value="">Semua</option>
-                  {Object.entries({ ...incomeCategories, ...expenseCategories }).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
-                </select>
+    {/* PERIOD FILTER - NEW! */}
+    <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-md">
+      <p className="text-xs font-semibold mb-2 text-slate-600 dark:text-slate-300">📆 Periode</p>
+      <div className="grid grid-cols-3 gap-1.5 mb-2">
+        {[
+          { id: 'all', label: 'Semua' },
+          { id: 'today', label: 'Hari Ini' },
+          { id: 'week', label: 'Minggu Ini' },
+          { id: 'month', label: 'Bulan Ini' },
+          { id: 'year', label: 'Tahun Ini' },
+          { id: 'custom', label: 'Custom' },
+        ].map(p => (
+          <button
+            key={p.id}
+            onClick={() => { setPeriodFilter(p.id as any); if (p.id !== 'custom') { setCustomStartDate(''); setCustomEndDate(''); } }}
+            className={`py-2 rounded-lg text-[11px] font-semibold transition-all active:scale-95 ${
+              periodFilter === p.id
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom Date Range */}
+      {periodFilter === 'custom' && (
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+          <div>
+            <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-1">Dari</label>
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={e => setCustomStartDate(e.target.value)}
+              className="w-full bg-slate-100 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-500 dark:text-slate-400 mb-1">Sampai</label>
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={e => setCustomEndDate(e.target.value)}
+              className="w-full bg-slate-100 dark:bg-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* CATEGORY FILTER */}
+    <select
+      value={filterCategory}
+      onChange={e => setFilterCategory(e.target.value)}
+      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+    >
+      <option value="">Semua Kategori</option>
+      {Object.entries({ ...incomeCategories, ...expenseCategories }).map(([k, c]) => (
+        <option key={k} value={k}>{c.icon} {c.name}</option>
+      ))}
+    </select>
+
+    {/* PERIOD SUMMARY CARD - NEW! */}
+    {filteredTransactions.length > 0 && (
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-3 shadow-md">
+          <p className="text-[10px] text-green-50 font-medium mb-0.5">💰 Pemasukan</p>
+          <p className="text-sm font-bold text-white break-words">
+            {formatCurrency(
+              filteredTransactions
+                .filter(t => t.type === 'income')
+                .reduce((sum, t) => sum + t.amount, 0)
+            ).replace('Rp', 'Rp ')}
+          </p>
+        </div>
+        <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-xl p-3 shadow-md">
+          <p className="text-[10px] text-red-50 font-medium mb-0.5">💸 Pengeluaran</p>
+          <p className="text-sm font-bold text-white break-words">
+            {formatCurrency(
+              filteredTransactions
+                .filter(t => t.type === 'expense')
+                .reduce((sum, t) => sum + t.amount, 0)
+            ).replace('Rp', 'Rp ')}
+          </p>
+        </div>
+      </div>
+    )}
+
+    {/* TRANSACTIONS LIST */}
+    {filteredTransactions.length === 0 ? (
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
+        <p className="text-slate-500 dark:text-slate-400 text-sm">Tidak ada transaksi di periode ini</p>
+      </div>
+    ) : (
+      <div className="space-y-2">
+        <p className="text-xs text-slate-500 dark:text-slate-400 px-1">
+          📋 {filteredTransactions.length} transaksi ditemukan
+        </p>
+        {filteredTransactions.map(t => {
+          const cats = t.type === 'income' ? incomeCategories : expenseCategories;
+          const cat = cats[t.category];
+          return (
+            <div key={t.id} className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm active:scale-[0.99] transition-transform">
+              <div className="flex items-center gap-3">
+                <div className={`text-xl w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${cat?.bgColor || 'bg-slate-100'}`}>
+                  {cat?.icon || '💰'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{cat?.name || 'Transaksi'}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t.description}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                    {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
+                  </p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className={`text-sm font-bold ${t.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
+                    {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount).replace('Rp', '').trim()}
+                  </p>
+                  <div className="flex gap-1 mt-1.5 justify-end">
+                    <button onClick={() => handleEdit(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
+                      <Edit2 className="w-3.5 h-3.5 text-blue-500" />
+                    </button>
+                    <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    </button>
+                  </div>
+                </div>
               </div>
-
-              {filteredTransactions.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
-                  <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada transaksi</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredTransactions.map(t => {
-                    const cats = t.type === 'income' ? incomeCategories : expenseCategories;
-                    const cat = cats[t.category];
-                    return (
-                      <div key={t.id} className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm active:scale-[0.99] transition-transform">
-                        <div className="flex items-center gap-3">
-                          <div className={`text-xl w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${cat?.bgColor || 'bg-slate-100'}`}>{cat?.icon || '💰'}</div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{cat?.name || 'Transaksi'}</h3>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t.description}</p>
-                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{format(new Date(t.date), 'dd MMM yyyy', { locale: id })}</p>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className={`text-sm font-bold ${t.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
-                              {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount).replace('Rp', '').trim()}
-                            </p>
-                            <div className="flex gap-1 mt-1.5 justify-end">
-                              <button onClick={() => handleEdit(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
-                                <Edit2 className="w-3.5 h-3.5 text-blue-500" />
-                              </button>
-                              <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
-                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
-          )}
+          );
+        })}
+      </div>
+    )}
+  </div>
+)}
 
           {/* MORE - Contains: Analisis, Budget, Goals, Recurring, Settings */}
           {activeTab === 'more' && (
