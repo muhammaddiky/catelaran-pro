@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa' // Import plugin
+import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
@@ -12,20 +12,20 @@ export default defineConfig({
         name: 'Catat Keuangan Pro',
         short_name: 'KeuanganPro',
         description: 'Aplikasi Pencatat Keuangan Pribadi Powerful',
-        theme_color: '#0f172a', // Warna dark mode
+        theme_color: '#0f172a',
         background_color: '#0f172a',
-        display: 'standalone', // INI KUNCINYA! (Hilangkan address bar browser)
+        display: 'standalone',
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192.png', // Siapkan gambar ini di folder 'public'
+            src: 'pwa-192x192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png', // Siapkan gambar ini di folder 'public'
+            src: 'pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
