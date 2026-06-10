@@ -1,0 +1,337 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import toast from 'react-hot-toast';
+
+// ========== TYPES ==========
+export interface Book {
+  id: string;
+  user_id: string;
+  name: string;
+  icon: string;
+  color: string;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface SupabaseTransaction {
+  id: string; user_id: string; book_id: string | null; date: string;
+  type: 'income' | 'expense'; category: string; description: string;
+  amount: number; notes?: string | null; created_at: string;
+}
+
+export interface SupabaseBudget {
+  id: string; user_id: string; book_id: string | null; category: string;
+  limit_amount: number; period: string;
+  notified_threshold_50: boolean; notified_threshold_80: boolean; notified_threshold_100: boolean;
+}
+
+export interface SupabaseGoal {
+  id: string; user_id: string; book_id: string | null; name: string; icon: string;
+  target_amount: number; current_amount: number;
+  deadline?: string | null; monthly_contribution?: number | null;
+}
+
+export interface SupabaseRecurring {
+  id: string; user_id: string; book_id: string | null; name: string; amount: number;
+  type: 'income' | 'expense'; category: string;
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  next_date: string; reminder_days: number; is_active: boolean;
+}
+
+// ========== HOOK ==========
+export function useSupabaseData() {
+  const { user } = useAuth();
+  const [books, setBooks] = useState<Book[]>([]);
+  const [activeBook, setActiveBook] = useState<Book | null>(null);
+  const [transactions, setTransactions] = useState<SupabaseTransaction[]>([]);
+  const [budgets, setBudgets] = useState<SupabaseBudget[]>([]);
+  const [goals, setGoals] = useState<SupabaseGoal[]>([]);
+  const [recurring, setRecurring] = useState<SupabaseRecurring[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // ========== FETCH BOOKS ==========
+  const fetchBooks = useCallback(async () => {
+  if (!user) {
+    setLoading(false);
+    return;
+  }
+  
+  try {
+    const { data, error } = await supabase
+      .from('books')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('is_default', { ascending: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('❌ Fetch books error:', error);
+      setLoading(false);
+      return;
+    }
+
+    // Kalau user belum punya buku sama sekali, buat default book
+    if (!data || data.length === 0) {
+      console.log('📚 No books found, creating default...');
+      const { data: newBook, error: createError } = await supabase
+        .from('books')
+        .insert({
+          user_id: user.id,
+          name: 'Buku Utama',
+          icon: '📘',
+          color: 'blue',
+          is_default: true,
+        })
+        .select()
+        .single();
+      
+      if (createError) {
+        console.error('❌ Create default book error:', createError);
+        setLoading(false);
+        return;
+      }
+      
+      setBooks([newBook]);
+      setActiveBook(newBook);
+    } else {
+      setBooks(data);
+      const savedBookId = localStorage.getItem(`active_book_${user.id}`);
+      const savedBook = data.find(b => b.id === savedBookId);
+      const defaultBook = data.find(b => b.is_default) || data[0];
+      setActiveBook(savedBook || defaultBook);
+    }
+  } catch (err) {
+    console.error('❌ Fetch books exception:', err);
+    setLoading(false);
+  }
+}, [user]);
+
+  // ========== FETCH DATA (FILTER BY ACTIVE BOOK) ==========
+  const fetchData = useCallback(async () => {
+  if (!user || !activeBook) {
+    setLoading(false); // ✅ PENTING: set false kalau tidak ada data
+    return;
+  }
+  
+  setLoading(true);
+  try {
+    const [tRes, bRes, gRes, rRes] = await Promise.all([
+      supabase.from('transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id).order('date', { ascending: false }),
+      supabase.from('budgets').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
+      supabase.from('financial_goals').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
+      supabase.from('recurring_transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
+    ]);
+
+    if (tRes.error) console.error('❌ Transactions error:', tRes.error);
+    if (bRes.error) console.error('❌ Budgets error:', bRes.error);
+    if (gRes.error) console.error('❌ Goals error:', gRes.error);
+    if (rRes.error) console.error('❌ Recurring error:', rRes.error);
+
+    if (tRes.data) setTransactions(tRes.data);
+    if (bRes.data) setBudgets(bRes.data);
+    if (gRes.data) setGoals(gRes.data);
+    if (rRes.data) setRecurring(rRes.data);
+
+    await migrateLocalStorage(user.id, activeBook);
+  } catch (err) {
+    console.error('❌ Fetch data exception:', err);
+    toast.error('Gagal memuat data');
+  } finally {
+    setLoading(false); // ✅ Selalu dipanggil
+  }
+}, [user, activeBook]);
+
+  useEffect(() => { fetchBooks(); }, [fetchBooks]);
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // ========== MIGRASI LOCALSTORAGE ==========
+  const migrateLocalStorage = async (userId: string, book: Book) => {
+    if (!book.is_default) return; // Hanya migrasi ke default book
+    try {
+      const lT = JSON.parse(localStorage.getItem('keuangan_transactions') || '[]');
+      const lB = JSON.parse(localStorage.getItem('keuangan_budgets') || '[]');
+      const lG = JSON.parse(localStorage.getItem('keuangan_goals') || '[]');
+      const lR = JSON.parse(localStorage.getItem('keuangan_recurring') || '[]');
+
+      if (lT.length > 0 && transactions.length === 0) {
+        await supabase.from('transactions').insert(lT.map((t: any) => ({
+          user_id: userId, book_id: book.id, date: t.date, type: t.type,
+          category: t.category, description: t.description, amount: t.amount, notes: t.notes || null,
+        })));
+      }
+      if (lB.length > 0 && budgets.length === 0) {
+        await supabase.from('budgets').insert(lB.map((b: any) => ({
+          user_id: userId, book_id: book.id, category: b.category, limit_amount: b.limit,
+          period: b.period || 'monthly',
+          notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
+        })));
+      }
+      if (lG.length > 0 && goals.length === 0) {
+        await supabase.from('financial_goals').insert(lG.map((g: any) => ({
+          user_id: userId, book_id: book.id, name: g.name, icon: g.icon || '🎯',
+          target_amount: g.targetAmount, current_amount: g.currentAmount || 0,
+          deadline: g.deadline || null, monthly_contribution: g.monthlyContribution || null,
+        })));
+      }
+      if (lR.length > 0 && recurring.length === 0) {
+        await supabase.from('recurring_transactions').insert(lR.map((r: any) => ({
+          user_id: userId, book_id: book.id, name: r.name, amount: r.amount, type: r.type,
+          category: r.category, frequency: r.frequency, next_date: r.nextDate,
+          reminder_days: r.reminderDays || 3, is_active: r.isActive !== false,
+        })));
+      }
+
+      if (lT.length > 0 || lB.length > 0 || lG.length > 0 || lR.length > 0) {
+        localStorage.removeItem('keuangan_transactions');
+        localStorage.removeItem('keuangan_budgets');
+        localStorage.removeItem('keuangan_goals');
+        localStorage.removeItem('keuangan_recurring');
+        toast.success(`Data lokal dimigrasi ke "${book.name}" ☁️`);
+        await fetchData();
+      }
+    } catch (err) { console.error('Migration error:', err); }
+  };
+
+  // ========== BOOK CRUD ==========
+  const createBook = async (name: string, icon: string, color: string) => {
+    if (!user) return null;
+    if (books.length >= 10) { toast.error('Maksimal 10 buku!'); return null; }
+    const { data, error } = await supabase
+      .from('books')
+      .insert({ user_id: user.id, name, icon, color, is_default: false })
+      .select()
+      .single();
+    if (error) { toast.error('Gagal buat buku'); return null; }
+    setBooks(prev => [...prev, data]);
+    setActiveBook(data);
+    toast.success(`Buku "${name}" dibuat! 📚`);
+    return data;
+  };
+
+  const renameBook = async (id: string, newName: string) => {
+    const { data, error } = await supabase.from('books').update({ name: newName }).eq('id', id).select().single();
+    if (error) { toast.error('Gagal rename'); return null; }
+    setBooks(prev => prev.map(b => b.id === id ? data : b));
+    if (activeBook?.id === id) setActiveBook(data);
+    toast.success('Buku di-rename! ✏️');
+    return data;
+  };
+
+  const deleteBook = async (id: string) => {
+    const book = books.find(b => b.id === id);
+    if (book?.is_default) { toast.error('Buku utama tidak bisa dihapus'); return false; }
+    if (!window.confirm(`Hapus buku "${book?.name}"? Semua data di dalamnya ikut terhapus!`)) return false;
+    const { error } = await supabase.from('books').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setBooks(prev => prev.filter(b => b.id !== id));
+    if (activeBook?.id === id) {
+      const defaultBook = books.find(b => b.is_default) || books[0];
+      setActiveBook(defaultBook);
+    }
+    toast.success('Buku dihapus');
+    return true;
+  };
+
+  const switchBook = (book: Book) => {
+    setActiveBook(book);
+    if (user) localStorage.setItem(`active_book_${user.id}`, book.id);
+    toast(`Beralih ke ${book.icon} ${book.name}`);
+  };
+
+  // ========== TRANSACTION CRUD ==========
+  const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>) => {
+    if (!user || !activeBook) return null;
+    const { data, error } = await supabase.from('transactions')
+      .insert({ ...t, user_id: user.id, book_id: activeBook.id }).select().single();
+    if (error) { toast.error('Gagal tambah transaksi'); return null; }
+    setTransactions(prev => [data, ...prev]);
+    return data;
+  };
+
+  const updateTransaction = async (id: string, updates: Partial<SupabaseTransaction>) => {
+    const { data, error } = await supabase.from('transactions').update(updates).eq('id', id).select().single();
+    if (error) { toast.error('Gagal update'); return null; }
+    setTransactions(prev => prev.map(t => t.id === id ? data : t));
+    return data;
+  };
+
+  const deleteTransaction = async (id: string) => {
+    const { error } = await supabase.from('transactions').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    return true;
+  };
+
+  // ========== BUDGET CRUD ==========
+  const addBudget = async (b: { category: string; limit_amount: number; period?: string }) => {
+    if (!user || !activeBook) return null;
+    const { data, error } = await supabase.from('budgets').insert({
+      ...b, user_id: user.id, book_id: activeBook.id, period: b.period || 'monthly',
+      notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
+    }).select().single();
+    if (error) { toast.error('Gagal tambah budget'); return null; }
+    setBudgets(prev => [...prev, data]);
+    return data;
+  };
+
+  const deleteBudget = async (id: string) => {
+    const { error } = await supabase.from('budgets').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setBudgets(prev => prev.filter(b => b.id !== id));
+    return true;
+  };
+
+  // ========== GOAL CRUD ==========
+  const addGoal = async (g: { name: string; icon: string; target_amount: number; current_amount?: number; deadline?: string; monthly_contribution?: number }) => {
+    if (!user || !activeBook) return null;
+    const { data, error } = await supabase.from('financial_goals').insert({
+      ...g, user_id: user.id, book_id: activeBook.id, current_amount: g.current_amount || 0,
+    }).select().single();
+    if (error) { toast.error('Gagal tambah goal'); return null; }
+    setGoals(prev => [...prev, data]);
+    return data;
+  };
+
+  const updateGoal = async (id: string, updates: Partial<SupabaseGoal>) => {
+    const { data, error } = await supabase.from('financial_goals').update(updates).eq('id', id).select().single();
+    if (error) { toast.error('Gagal update'); return null; }
+    setGoals(prev => prev.map(g => g.id === id ? data : g));
+    return data;
+  };
+
+  const deleteGoal = async (id: string) => {
+    const { error } = await supabase.from('financial_goals').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setGoals(prev => prev.filter(g => g.id !== id));
+    return true;
+  };
+
+  // ========== RECURRING CRUD ==========
+  const addRecurring = async (r: Omit<SupabaseRecurring, 'id' | 'user_id' | 'book_id'>) => {
+    if (!user || !activeBook) return null;
+    const { data, error } = await supabase.from('recurring_transactions').insert({
+      ...r, user_id: user.id, book_id: activeBook.id,
+    }).select().single();
+    if (error) { toast.error('Gagal tambah recurring'); return null; }
+    setRecurring(prev => [...prev, data]);
+    return data;
+  };
+
+  const deleteRecurring = async (id: string) => {
+    const { error } = await supabase.from('recurring_transactions').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setRecurring(prev => prev.filter(r => r.id !== id));
+    return true;
+  };
+
+  return {
+    books, activeBook, transactions, budgets, goals, recurring, loading,
+    switchBook, createBook, renameBook, deleteBook,
+    addTransaction, updateTransaction, deleteTransaction,
+    addBudget, deleteBudget,
+    addGoal, updateGoal, deleteGoal,
+    addRecurring, deleteRecurring,
+    refresh: fetchData,
+  };
+}

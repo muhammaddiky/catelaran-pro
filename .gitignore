@@ -31,3 +31,9 @@ yarn-error.log
 .parcel-cache/
 .next/
 out/
+
+# Database
+.env
+.env.local
+node_modules
+dist

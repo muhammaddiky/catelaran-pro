@@ -1,7 +1,7 @@
 {
   "name": "Catelaran Pro - Expense Tracker",
   "short_name": "Catelaran",
-  "description": "Aplikasi pencatat pengeluaran dengan OCR dan sinkronisasi Google Sheets",
+  "description": "Aplikasi pencatat pengeluaran",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
