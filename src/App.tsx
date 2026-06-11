@@ -662,7 +662,6 @@ if (showSplash) {
   // ✅ AUTH GUARD & SPLASH SCREEN (DIPERBAIKI)
 // ✅ SKELETON LOADING (PENGGANTI SPLASH SCREEN - TERASA INSTAN!)
 const isLoading = authLoading || dataLoading;
-
   if (isLoading) {
   return (
     <div className={`min-h-[100dvh] transition-colors ${isDark ? 'bg-slate-900' : 'bg-slate-50'} p-4 pb-28`}>
@@ -910,6 +909,26 @@ if (!user) return <AuthScreen />;
 </header>
 
         <main className="max-w-4xl mx-auto px-4 pt-4 pb-28">
+                {/* ONBOARDING: JIKA USER BELUM MEMILIH / MEMBUAT BUKU */}
+      {!activeBook && (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-lg border border-slate-200 dark:border-slate-700 mt-4 animate-in fade-in zoom-in duration-500">
+          <div className="text-6xl mb-4 animate-bounce">📚</div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+            {books.length === 0 ? 'Selamat Datang di CatanKeuangan!' : 'Pilih Buku Anda'}
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-xs mx-auto">
+            {books.length === 0 
+              ? 'Anda belum memiliki buku catatan. Silakan buat buku pertama Anda untuk mulai mencatat keuangan.' 
+              : 'Silakan pilih buku yang ingin Anda buka, atau buat buku baru.'}
+          </p>
+          <button 
+            onClick={() => setShowBookManager(true)}
+            className="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-8 py-3 rounded-xl font-bold active:scale-95 shadow-lg shadow-blue-500/30 transition-transform"
+          >
+            ➕ {books.length === 0 ? 'Buat Buku Pertama' : 'Buka Kelola Buku'}
+          </button>
+        </div>
+      )}
           {/* DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-4">
