@@ -663,7 +663,7 @@ if (showSplash) {
 // ✅ SKELETON LOADING (PENGGANTI SPLASH SCREEN - TERASA INSTAN!)
 const isLoading = authLoading || dataLoading;
 
-if (isLoading || !activeBook) {
+  if (isLoading) {
   return (
     <div className={`min-h-[100dvh] transition-colors ${isDark ? 'bg-slate-900' : 'bg-slate-50'} p-4 pb-28`}>
       {/* HEADER SKELETON */}
