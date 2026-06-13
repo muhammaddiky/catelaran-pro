@@ -1005,16 +1005,7 @@ if (!user) return <AuthScreen />;
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 mb-1.5">
-              {['blue', 'green', 'red', 'purple', 'orange', 'pink'].map(color => (
-                <button
-                  key={color}
-                  onClick={() => setNewBookColor(color)}
-                  className={`w-6 h-6 rounded-full border-2 ${newBookColor === color ? 'border-slate-900 dark:border-white' : 'border-transparent'} bg-${color}-500`}
-                />
-              ))}
-            </div>
-            <div className="flex gap-1">
+              <div className="flex gap-1">
               <input
                 type="text"
                 value={newBookName}
