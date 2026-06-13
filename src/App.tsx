@@ -1225,7 +1225,7 @@ if (!user) return <AuthScreen />;
                   </div>
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
-                    <input type="text" value={formatNominalDisplay(formData.amount)} onChange={handleNominalChange} placeholder="Rp 0" inputMode="numeric"
+                    <input type="text" value={formatNominalDisplay(formData.amount)} onChange={handleNominalChange} placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <div>
@@ -1709,7 +1709,8 @@ if (!user) return <AuthScreen />;
       ))}
     </select>
     <input type="text" value={formatNominalDisplay(budgetForm.limit)} onChange={e => setBudgetForm({ ...budgetForm, limit: parseNominal(e.target.value).toString() })}
-      placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+      placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
+      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
     <div className="flex gap-2">
       <button onClick={editingBudget ? handleUpdateBudget : handleAddBudget} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
           {editingBudget ? 'Update' : 'Simpan'}
@@ -1803,11 +1804,11 @@ if (!user) return <AuthScreen />;
         <input type="text" value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="Nama goal"
           className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
         <input type="text" value={formatNominalDisplay(goalForm.targetAmount)} onChange={e => setGoalForm({ ...goalForm, targetAmount: parseNominal(e.target.value).toString() })}
-          placeholder="Target" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+  placeholder="Target" inputMode="numeric" pattern="[0-9]*" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
         <input type="date" value={goalForm.deadline} onChange={e => setGoalForm({ ...goalForm, deadline: e.target.value })}
           className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
         <input type="text" value={formatNominalDisplay(goalForm.monthlyContribution)} onChange={e => setGoalForm({ ...goalForm, monthlyContribution: parseNominal(e.target.value).toString() })}
-          placeholder="Kontribusi/bulan" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+  placeholder="Kontribusi/bulan" inputMode="numeric" pattern="[0-9]*" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
         <div className="flex gap-2">
           <button onClick={editingGoal ? handleUpdateGoal : handleAddGoal} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
             {editingGoal ? 'Update' : 'Simpan'}
@@ -1909,7 +1910,8 @@ if (!user) return <AuthScreen />;
                     {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
                    </select>
                    <input type="text" value={formatNominalDisplay(recurringForm.amount)} onChange={e => setRecurringForm({ ...recurringForm, amount: parseNominal(e.target.value).toString() })}
-                    placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+                    placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
                    <select value={recurringForm.frequency} onChange={e => setRecurringForm({ ...recurringForm, frequency: e.target.value as any })}
                     className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
                      <option value="daily">Harian</option>  <option value="weekly">Mingguan</option>
