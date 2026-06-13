@@ -275,6 +275,17 @@ export function useSupabaseData() {
     return data;
   };
 
+    const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string }) => {
+    const { data, error } = await supabase.from('budgets').update(updates).eq('id', id).select().single();
+    if (error) { 
+      toast.error('Gagal update budget'); 
+      console.error('Supabase Update Budget Error:', error);
+      return null; 
+    }
+    setBudgets(prev => prev.map(b => b.id === id ? data : b));
+    return data;
+  };
+
   const deleteBudget = async (id: string) => {
     const { error } = await supabase.from('budgets').delete().eq('id', id);
     if (error) { toast.error('Gagal hapus'); return false; }
@@ -318,6 +329,17 @@ export function useSupabaseData() {
     return data;
   };
 
+    const updateRecurring = async (id: string, updates: any) => {
+    const { data, error } = await supabase.from('recurring_transactions').update(updates).eq('id', id).select().single();
+    if (error) { 
+      toast.error('Gagal update recurring'); 
+      console.error('Supabase Update Recurring Error:', error);
+      return null; 
+    }
+    setRecurring(prev => prev.map(r => r.id === id ? data : r));
+    return data;
+  };
+
   const deleteRecurring = async (id: string) => {
     const { error } = await supabase.from('recurring_transactions').delete().eq('id', id);
     if (error) { toast.error('Gagal hapus'); return false; }
@@ -325,13 +347,13 @@ export function useSupabaseData() {
     return true;
   };
 
-  return {
+    return {
     books, activeBook, transactions, budgets, goals, recurring, loading,
     switchBook, createBook, renameBook, deleteBook,
     addTransaction, updateTransaction, deleteTransaction,
-    addBudget, deleteBudget,
+    addBudget, updateBudget, deleteBudget,      // ✅ Tambahkan updateBudget
     addGoal, updateGoal, deleteGoal,
-    addRecurring, deleteRecurring,
+    addRecurring, updateRecurring, deleteRecurring,  // ✅ Tambahkan updateRecurring
     refresh: fetchData,
   };
 }

@@ -149,9 +149,9 @@ const {
   goals: rawGoals, recurring: rawRecurring, loading: dataLoading,
   switchBook, createBook, renameBook, deleteBook,
   addTransaction, updateTransaction, deleteTransaction,
-  addBudget, deleteBudget,
+  addBudget, updateBudget, deleteBudget,  
   addGoal, updateGoal, deleteGoal,
-  addRecurring, deleteRecurring,
+  addRecurring, updateRecurring, deleteRecurring,  
 } = useSupabaseData();
 
 // Map Supabase data → App types
@@ -199,6 +199,18 @@ const [editingBookName, setEditingBookName] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  // State untuk Budget
+const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
+const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
+
+// State untuk Goals
+const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
+const [viewingGoal, setViewingGoal] = useState<FinancialGoal | null>(null);
+
+// State untuk Recurring
+const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
+const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | null>(null);
+
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('keuangan_scriptUrl') || '');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -416,9 +428,9 @@ const [editingBookName, setEditingBookName] = useState('');
 };
 
   const handleDelete = async (id: string) => {
-  if (window.confirm('Hapus transaksi ini?')) {
+  if (window.confirm('⚠️ Hapus transaksi ini?\n\nData tidak dapat dikembalikan.')) {
     const ok = await deleteTransaction(id);
-    if (ok) notify.info('Transaksi dihapus');
+    if (ok) notify.success('Transaksi berhasil dihapus 🗑️');
   }
 };
 
@@ -490,6 +502,47 @@ const [editingBookName, setEditingBookName] = useState('');
     setShowBudgetForm(false);
   }
 };
+const handleEditBudget = (budget: Budget) => {
+  setEditingBudget(budget);
+  setBudgetForm({
+    category: budget.category,
+    limit: budget.limit.toString()
+  });
+  setShowBudgetForm(true);
+};
+
+const handleViewBudget = (budget: Budget) => {
+  setViewingBudget(budget);
+};
+
+const handleUpdateBudget = async () => {
+  try {
+    if (!editingBudget || !budgetForm.category || !budgetForm.limit) {
+      notify.error('Data tidak lengkap');
+      return;
+    }
+    const limit = parseNominal(budgetForm.limit);
+    if (limit <= 0) { 
+      notify.error('Nominal tidak valid'); 
+      return; 
+    }
+    const result = await updateBudget(editingBudget.id, {
+      category: budgetForm.category,
+      limit_amount: limit
+    });
+    if (result) {
+      notify.success('Budget berhasil diupdate');
+      setEditingBudget(null);
+      setShowBudgetForm(false);
+      setBudgetForm({ category: 'makanan', limit: '' });
+    } else {
+      notify.error('Gagal memperbarui budget. Cek koneksi atau RLS Policy.');
+    }
+  } catch (error) {
+    console.error('Budget Update Error:', error);
+    notify.error('Terjadi kesalahan saat memperbarui budget.');
+  }
+};
 
   const handleAddGoal = async () => {
   if (!goalForm.name || !goalForm.targetAmount) { notify.error('Nama & target wajib'); return; }
@@ -502,6 +555,42 @@ const [editingBookName, setEditingBookName] = useState('');
     notify.success('Goal ditambahkan!');
     setGoalForm({ name: '', targetAmount: '', deadline: '', monthlyContribution: '', icon: '🎯' });
     setShowGoalForm(false);
+  }
+};
+
+const handleEditGoal = (goal: FinancialGoal) => {
+  setEditingGoal(goal);
+  setGoalForm({
+    name: goal.name,
+    targetAmount: goal.targetAmount.toString(),
+    deadline: goal.deadline || '',
+    monthlyContribution: goal.monthlyContribution ? goal.monthlyContribution.toString() : '',
+    icon: goal.icon
+  });
+  setShowGoalForm(true);
+};
+
+const handleViewGoal = (goal: FinancialGoal) => {
+  setViewingGoal(goal);
+};
+
+const handleUpdateGoal = async () => {
+  if (!editingGoal || !goalForm.name || !goalForm.targetAmount) { 
+    notify.error('Data tidak lengkap'); 
+    return; 
+  }
+  const result = await updateGoal(editingGoal.id, {
+    name: goalForm.name,
+    icon: goalForm.icon,
+    target_amount: parseInt(goalForm.targetAmount),
+    deadline: goalForm.deadline || undefined,
+    monthly_contribution: goalForm.monthlyContribution ? parseInt(goalForm.monthlyContribution) : undefined,
+  });
+  if (result) {
+    notify.success('Goal berhasil diupdate');
+    setEditingGoal(null);
+    setShowGoalForm(false);
+    setGoalForm({ name: '', targetAmount: '', deadline: '', monthlyContribution: '', icon: '🎯' });
   }
 };
 
@@ -531,6 +620,53 @@ const [editingBookName, setEditingBookName] = useState('');
     notify.success('Recurring ditambahkan');
     setRecurringForm({ name: '', amount: '', type: 'expense', category: 'utilitas', frequency: 'monthly', nextDate: format(new Date(), 'yyyy-MM-dd'), reminderDays: 3 });
     setShowRecurringForm(false);
+  }
+};
+
+const handleEditRecurring = (recurring: RecurringTransaction) => {
+  setEditingRecurring(recurring);
+  setRecurringForm({
+    name: recurring.name,
+    amount: recurring.amount.toString(),
+    type: recurring.type,
+    category: recurring.category,
+    frequency: recurring.frequency,
+    nextDate: recurring.nextDate,
+    reminderDays: recurring.reminderDays
+  });
+  setShowRecurringForm(true);
+};
+
+const handleViewRecurring = (recurring: RecurringTransaction) => {
+  setViewingRecurring(recurring);
+};
+
+const handleUpdateRecurring = async () => {
+  try {
+    if (!editingRecurring || !recurringForm.name || !recurringForm.amount) {
+      notify.error('Data tidak lengkap');
+      return;
+    }
+    const result = await updateRecurring(editingRecurring.id, {
+      name: recurringForm.name,
+      amount: parseInt(recurringForm.amount),
+      type: recurringForm.type,
+      category: recurringForm.category,
+      frequency: recurringForm.frequency,
+      next_date: recurringForm.nextDate,
+      reminder_days: recurringForm.reminderDays,
+    });
+    if (result) {
+      notify.success('Recurring berhasil diupdate');
+      setEditingRecurring(null);
+      setShowRecurringForm(false);
+      setRecurringForm({ name: '', amount: '', type: 'expense', category: 'utilitas', frequency: 'monthly', nextDate: format(new Date(), 'yyyy-MM-dd'), reminderDays: 3 });
+    } else {
+      notify.error('Gagal memperbarui recurring. Cek koneksi atau RLS Policy.');
+    }
+  } catch (error) {
+    console.error('Recurring Update Error:', error);
+    notify.error('Terjadi kesalahan saat memperbarui recurring.');
   }
 };
 
@@ -797,7 +933,11 @@ if (!user) return <AuthScreen />;
                     <Edit2 className="w-3 h-3 text-blue-500" />
                   </button>
                   <button
-                    onClick={() => deleteBook(book.id)}
+                    onClick={() => { 
+                    if (window.confirm(`⚠️ Hapus buku "${book.name}"?\n\nSemua transaksi di buku ini juga akan hilang!`)) {
+                      deleteBook(book.id);
+                    }
+                  }}
                     className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"
                   >
                     <Trash2 className="w-3 h-3 text-red-500" />
@@ -1555,25 +1695,31 @@ if (!user) return <AuthScreen />;
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white">💰 Budget</h2>
-                    <button onClick={() => setShowBudgetForm(!showBudgetForm)}
-                      className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-transform flex items-center gap-1 shadow-md shadow-blue-500/30">
-                      <Plus className="w-3.5 h-3.5" /> Baru
-                    </button>
+                    <button onClick={() => { setShowBudgetForm(true); setEditingBudget(null); }}
+              className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-transform flex items-center gap-1 shadow-md shadow-blue-500/30">
+              <Plus className="w-3.5 h-3.5" /> Baru
+            </button>
                   </div>
-                  {showBudgetForm && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
-                      <select value={budgetForm.category} onChange={e => setBudgetForm({ ...budgetForm, category: e.target.value })}
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-                        {Object.entries(expenseCategories).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
-                      </select>
-                      <input type="text" value={formatNominalDisplay(budgetForm.limit)} onChange={e => setBudgetForm({ ...budgetForm, limit: parseNominal(e.target.value).toString() })}
-                        placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
-                      <div className="flex gap-2">
-                        <button onClick={handleAddBudget} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">Simpan</button>
-                        <button onClick={() => setShowBudgetForm(false)} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
-                      </div>
-                    </div>
-                  )}
+                 {(showBudgetForm || editingBudget) && (
+  <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
+    <select value={budgetForm.category} onChange={e => setBudgetForm({ ...budgetForm, category: e.target.value })}
+      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
+      {Object.entries(expenseCategories).map(([k, c]) => (
+        <option key={k} value={k}>{c.icon} {c.name}</option>
+      ))}
+    </select>
+    <input type="text" value={formatNominalDisplay(budgetForm.limit)} onChange={e => setBudgetForm({ ...budgetForm, limit: parseNominal(e.target.value).toString() })}
+      placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+    <div className="flex gap-2">
+      <button onClick={editingBudget ? handleUpdateBudget : handleAddBudget} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
+          {editingBudget ? 'Update' : 'Simpan'}
+        </button>
+      <button onClick={() => { setShowBudgetForm(false); setEditingBudget(null); }} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
+    </div>
+  </div>
+  
+)}
+
                   {budgets.length === 0 ? (
                     <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
                       <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada budget</p>
@@ -1595,10 +1741,23 @@ if (!user) return <AuthScreen />;
                                   <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatCurrency(spent)} / {formatCurrency(b.limit)}</p>
                                 </div>
                               </div>
-                              <button onClick={async () => { const ok = await deleteBudget(b.id); if (ok) notify.info('Budget dihapus'); }}
-                                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
-                                <Trash2 className="w-4 h-4 text-red-500" />
+                              <div className="flex gap-1.5">
+                              <button onClick={() => handleEditBudget(b)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                                <Edit2 className="w-4 h-4 text-blue-500" />
                               </button>
+                              <button onClick={() => handleViewBudget(b)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                                <Eye className="w-4 h-4 text-slate-500" />
+                              </button>
+                              <button onClick={async () => { 
+                          if (window.confirm(`⚠️ Hapus budget "${expenseCategories[b.category]?.name}"?\n\nTindakan ini tidak dapat dibatalkan.`)) {
+                            const ok = await deleteBudget(b.id); 
+                            if (ok) notify.success('Budget berhasil dihapus 🗑️'); 
+                          }
+                        }}
+                          className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                            </div>
                             </div>
                             <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden mb-2">
                               <div className={`h-full rounded-full ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-500' : 'bg-green-500'}`} style={{ width: `${Math.min(pct, 100)}%` }} />
@@ -1621,181 +1780,213 @@ if (!user) return <AuthScreen />;
               )}
 
               {/* GOALS */}
-              {activeMoreTab === 'goals' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">🎯 Goals</h2>
-                    <button onClick={() => setShowGoalForm(!showGoalForm)}
-                      className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 flex items-center gap-1 shadow-md shadow-blue-500/30">
-                      <Plus className="w-3.5 h-3.5" /> Baru
-                    </button>
+{activeMoreTab === 'goals' && (
+  <div className="space-y-4">
+    <div className="flex justify-between items-center">
+      <h2 className="text-lg font-bold text-slate-900 dark:text-white">🎯 Goals</h2>
+      <button onClick={() => { setShowGoalForm(true); setEditingGoal(null); }}
+        className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 flex items-center gap-1 shadow-md shadow-blue-500/30">
+        <Plus className="w-3.5 h-3.5" /> Baru
+      </button>
+    </div>
+    {(showGoalForm || editingGoal) && (
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Icon</label>
+          <div className="flex gap-2 flex-wrap">
+            {['🏠', '🚗', '✈️', '💻', '📱', '💍', '🎓', '💰', '🎯', '🏖️'].map(icon => (
+              <button key={icon} onClick={() => setGoalForm({ ...goalForm, icon })}
+                className={`text-xl w-11 h-11 rounded-xl active:scale-90 transition-transform ${goalForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-700'}`}>{icon}</button>
+            ))}
+          </div>
+        </div>
+        <input type="text" value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="Nama goal"
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+        <input type="text" value={formatNominalDisplay(goalForm.targetAmount)} onChange={e => setGoalForm({ ...goalForm, targetAmount: parseNominal(e.target.value).toString() })}
+          placeholder="Target" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+        <input type="date" value={goalForm.deadline} onChange={e => setGoalForm({ ...goalForm, deadline: e.target.value })}
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+        <input type="text" value={formatNominalDisplay(goalForm.monthlyContribution)} onChange={e => setGoalForm({ ...goalForm, monthlyContribution: parseNominal(e.target.value).toString() })}
+          placeholder="Kontribusi/bulan" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+        <div className="flex gap-2">
+          <button onClick={editingGoal ? handleUpdateGoal : handleAddGoal} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
+            {editingGoal ? 'Update' : 'Simpan'}
+          </button>
+          <button onClick={() => { setShowGoalForm(false); setEditingGoal(null); }} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
+        </div>
+      </div>
+    )}
+    {goals.length === 0 ? (
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
+        <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada goal</p>
+      </div>
+    ) : (
+      <div className="space-y-3">
+        {goals.map(g => {
+          const pct = (g.currentAmount / g.targetAmount) * 100;
+          const remaining = g.targetAmount - g.currentAmount;
+          const daysLeft = g.deadline ? differenceInDays(new Date(g.deadline), new Date()) : null;
+          const months = g.monthlyContribution ? Math.ceil(remaining / g.monthlyContribution) : null;
+          return (
+            <div key={g.id} className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-3xl">{g.icon}</span>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">{g.name}</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatCurrency(g.currentAmount)} / {formatCurrency(g.targetAmount)}</p>
                   </div>
-                  {showGoalForm && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Icon</label>
-                        <div className="flex gap-2 flex-wrap">
-                          {['🏠', '🚗', '✈️', '💻', '📱', '💍', '🎓', '💰', '🎯', '🏖️'].map(icon => (
-                            <button key={icon} onClick={() => setGoalForm({ ...goalForm, icon })}
-                              className={`text-xl w-11 h-11 rounded-xl active:scale-90 transition-transform ${goalForm.icon === icon ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-700'}`}>{icon}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <input type="text" value={goalForm.name} onChange={e => setGoalForm({ ...goalForm, name: e.target.value })} placeholder="Nama goal"
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                      <input type="text" value={formatNominalDisplay(goalForm.targetAmount)} onChange={e => setGoalForm({ ...goalForm, targetAmount: parseNominal(e.target.value).toString() })}
-                        placeholder="Target" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
-                      <input type="date" value={goalForm.deadline} onChange={e => setGoalForm({ ...goalForm, deadline: e.target.value })}
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                      <input type="text" value={formatNominalDisplay(goalForm.monthlyContribution)} onChange={e => setGoalForm({ ...goalForm, monthlyContribution: parseNominal(e.target.value).toString() })}
-                        placeholder="Kontribusi/bulan" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                      <div className="flex gap-2">
-                        <button onClick={handleAddGoal} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">Simpan</button>
-                        <button onClick={() => setShowGoalForm(false)} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
-                      </div>
-                    </div>
-                  )}
-                  {goals.length === 0 ? (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
-                      <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada goal</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {goals.map(g => {
-                        const pct = (g.currentAmount / g.targetAmount) * 100;
-                        const remaining = g.targetAmount - g.currentAmount;
-                        const daysLeft = g.deadline ? differenceInDays(new Date(g.deadline), new Date()) : null;
-                        const months = g.monthlyContribution ? Math.ceil(remaining / g.monthlyContribution) : null;
-                        return (
-                          <div key={g.id} className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                            <div className="flex justify-between items-start mb-3">
-                              <div className="flex items-center gap-2">
-                                <span className="text-3xl">{g.icon}</span>
-                                <div>
-                                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">{g.name}</h3>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatCurrency(g.currentAmount)} / {formatCurrency(g.targetAmount)}</p>
-                                </div>
-                              </div>
-                              <button onClick={async () => { if (confirm('Hapus goal?')) { const ok = await deleteGoal(g.id); if (ok) notify.info('Goal dihapus'); } }}
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={() => handleEditGoal(g)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                    <Edit2 className="w-4 h-4 text-blue-500" />
+                  </button>
+                  <button onClick={() => handleViewGoal(g)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                    <Eye className="w-4 h-4 text-slate-500" />
+                  </button>
+                  <button onClick={async () => { if (confirm('Hapus goal?')) { const ok = await deleteGoal(g.id); if (ok) notify.info('Goal dihapus'); } }}
+                    className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </button>
+                </div>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
+                <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full flex items-center justify-end pr-2" style={{ width: `${Math.min(pct, 100)}%` }}>
+                  {pct > 15 && <span className="text-white text-[10px] font-bold">{pct.toFixed(0)}%</span>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+                <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
+                  <p className="text-slate-500 dark:text-slate-400">Sisa</p>
+                  <p className="font-bold text-slate-900 dark:text-white">{formatCurrency(remaining)}</p>
+                </div>
+                {daysLeft !== null ? (
+                  <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
+                    <p className="text-slate-500 dark:text-slate-400">Sisa waktu</p>
+                    <p className="font-bold text-slate-900 dark:text-white">{daysLeft} hari</p>
+                  </div>
+                ) : months !== null ? (
+                  <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
+                    <p className="text-slate-500 dark:text-slate-400">Tercapai</p>
+                    <p className="font-bold text-slate-900 dark:text-white">{months} bln</p>
+                  </div>
+                ) : null}
+              </div>
+              <button onClick={() => addFundsToGoal(g.id)}
+                className="w-full bg-blue-500 text-white py-2.5 rounded-xl text-xs font-semibold active:scale-95 transition-transform">
+                + Tambah Dana
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+)}
+
+                        {/* RECURRING */}
+          {activeMoreTab === 'recurring' && (
+             <div className="space-y-3">
+               {/* PERBAIKAN: Tombol Baru sekarang mereset editingRecurring */}
+               <button onClick={() => { setShowRecurringForm(true); setEditingRecurring(null); }}
+                className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 flex items-center justify-center gap-1 shadow-md shadow-blue-500/30">
+                 <Plus className="w-4 h-4" /> Tambah Recurring
+               </button>
+
+               {/* PERBAIKAN: Tambahkan || editingRecurring agar form muncul saat edit */}
+              {(showRecurringForm || editingRecurring) && (
+                 <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
+                   <div className="grid grid-cols-2 gap-2">
+                     <button onClick={() => setRecurringForm({ ...recurringForm, type: 'expense', category: 'utilitas' })}
+                      className={`py-3 rounded-xl font-semibold text-sm ${recurringForm.type === 'expense' ? 'bg-red-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>💸 Keluar</button>
+                     <button onClick={() => setRecurringForm({ ...recurringForm, type: 'income', category: 'gaji' })}
+                      className={`py-3 rounded-xl font-semibold text-sm ${recurringForm.type === 'income' ? 'bg-green-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>💰 Masuk</button>
+                   </div>
+                   <input type="text" value={recurringForm.name} onChange={e => setRecurringForm({ ...recurringForm, name: e.target.value })}
+                    placeholder="Nama (Listrik, Gaji...)" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+                   <select value={recurringForm.category} onChange={e => setRecurringForm({ ...recurringForm, category: e.target.value })}
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
+                    {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
+                   </select>
+                   <input type="text" value={formatNominalDisplay(recurringForm.amount)} onChange={e => setRecurringForm({ ...recurringForm, amount: parseNominal(e.target.value).toString() })}
+                    placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+                   <select value={recurringForm.frequency} onChange={e => setRecurringForm({ ...recurringForm, frequency: e.target.value as any })}
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
+                     <option value="daily">Harian</option>  <option value="weekly">Mingguan</option>
+                     <option value="monthly">Bulanan</option>  <option value="yearly">Tahunan</option>
+                   </select>
+                   <input type="date" value={recurringForm.nextDate} onChange={e => setRecurringForm({ ...recurringForm, nextDate: e.target.value })}
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+                   <div className="flex gap-2">
+                     {/* PERBAIKAN: Tombol Simpan sekarang mendukung Update */}
+                     <button onClick={editingRecurring ? handleUpdateRecurring : handleAddRecurring} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
+                       {editingRecurring ? 'Update' : 'Simpan'}
+                     </button>
+                     {/* PERBAIKAN: Tombol Batal sekarang mereset state edit */}
+                     <button onClick={() => { setShowRecurringForm(false); setEditingRecurring(null); }} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
+                   </div>
+                 </div>
+              )}
+
+              {recurringTransactions.length === 0 ? (
+                 <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
+                   <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada recurring</p>
+                 </div>
+              ) : (
+                 <div className="space-y-2">
+                  {recurringTransactions.map(r => {
+                    const daysLeft = differenceInDays(new Date(r.nextDate), new Date());
+                    const isUrgent = daysLeft <= r.reminderDays && daysLeft >= 0;
+                    const cats = r.type === 'income' ? incomeCategories : expenseCategories;
+                    const cat = cats[r.category];
+                    return (
+                       <div key={r.id} className={`bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm ${isUrgent ? 'ring-2 ring-orange-400' : ''}`}>
+                         <div className="flex items-center gap-3">
+                           <span className="text-xl w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">{cat?.icon}</span>
+                           <div className="flex-1 min-w-0">
+                             <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{r.name}</h3>
+                             <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {cat?.name} • {r.frequency === 'daily' ? 'Harian' : r.frequency === 'weekly' ? 'Mingguan' : r.frequency === 'monthly' ? 'Bulanan' : 'Tahunan'}
+                             </p>
+                             <div className="flex items-center gap-1 mt-0.5">
+                               <Calendar className="w-3 h-3 text-slate-400" />
+                               <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {daysLeft === 0 ? 'Hari ini' : daysLeft > 0 ? `${daysLeft} hari lagi` : 'Terlewat'}
+                               </p>
+                              {isUrgent && <Bell className="w-3 h-3 text-orange-500 animate-pulse" />}
+                             </div>
+                           </div>
+                           <div className="text-right">
+                             <p className={`text-sm font-bold ${r.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
+                              {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount).replace('Rp', '').trim()}
+                             </p>
+                             {/* Tombol Edit, View, Delete sudah ada dan benar di sini */}
+                             <div className="flex gap-1.5 mt-1 justify-end">
+                               <button onClick={() => handleEditRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                                 <Edit2 className="w-3.5 h-3.5 text-blue-500" />
+                               </button>
+                               <button onClick={() => handleViewRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                                 <Eye className="w-3.5 h-3.5 text-slate-500" />
+                               </button>
+                               <button onClick={async () => { 
+                                if (window.confirm(`⚠️ Hapus recurring "${r.name}"?\n\nTransaksi otomatis ini akan berhenti selamanya.`)) {
+                                  const ok = await deleteRecurring(r.id); 
+                                  if (ok) notify.success('Recurring berhasil dihapus 🗑️'); 
+                                }
+                              }}
                                 className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
                                 <Trash2 className="w-4 h-4 text-red-500" />
                               </button>
-                            </div>
-                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
-                              <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full flex items-center justify-end pr-2" style={{ width: `${Math.min(pct, 100)}%` }}>
-                                {pct > 15 && <span className="text-white text-[10px] font-bold">{pct.toFixed(0)}%</span>}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
-                              <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
-                                <p className="text-slate-500 dark:text-slate-400">Sisa</p>
-                                <p className="font-bold text-slate-900 dark:text-white">{formatCurrency(remaining)}</p>
-                              </div>
-                              {daysLeft !== null ? (
-                                <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
-                                  <p className="text-slate-500 dark:text-slate-400">Sisa waktu</p>
-                                  <p className="font-bold text-slate-900 dark:text-white">{daysLeft} hari</p>
-                                </div>
-                              ) : months !== null ? (
-                                <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
-                                  <p className="text-slate-500 dark:text-slate-400">Tercapai</p>
-                                  <p className="font-bold text-slate-900 dark:text-white">{months} bln</p>
-                                </div>
-                              ) : null}
-                            </div>
-                            <button onClick={() => addFundsToGoal(g.id)}
-                              className="w-full bg-blue-500 text-white py-2.5 rounded-xl text-xs font-semibold active:scale-95 transition-transform">
-                              + Tambah Dana
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                             </div>
+                           </div>
+                         </div>
+                       </div>
+                    );
+                  })}
+                 </div>
               )}
-
-              {/* RECURRING */}
-              {activeMoreTab === 'recurring' && (
-                <div className="space-y-3">
-                  <button onClick={() => setShowRecurringForm(!showRecurringForm)}
-                    className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 flex items-center justify-center gap-1 shadow-md shadow-blue-500/30">
-                    <Plus className="w-4 h-4" /> Tambah Recurring
-                  </button>
-                  {showRecurringForm && (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => setRecurringForm({ ...recurringForm, type: 'expense', category: 'utilitas' })}
-                          className={`py-3 rounded-xl font-semibold text-sm ${recurringForm.type === 'expense' ? 'bg-red-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>💸 Keluar</button>
-                        <button onClick={() => setRecurringForm({ ...recurringForm, type: 'income', category: 'gaji' })}
-                          className={`py-3 rounded-xl font-semibold text-sm ${recurringForm.type === 'income' ? 'bg-green-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>💰 Masuk</button>
-                      </div>
-                      <input type="text" value={recurringForm.name} onChange={e => setRecurringForm({ ...recurringForm, name: e.target.value })}
-                        placeholder="Nama (Listrik, Gaji...)" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                      <select value={recurringForm.category} onChange={e => setRecurringForm({ ...recurringForm, category: e.target.value })}
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-                        {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
-                      </select>
-                      <input type="text" value={formatNominalDisplay(recurringForm.amount)} onChange={e => setRecurringForm({ ...recurringForm, amount: parseNominal(e.target.value).toString() })}
-                        placeholder="Rp 0" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
-                      <select value={recurringForm.frequency} onChange={e => setRecurringForm({ ...recurringForm, frequency: e.target.value as any })}
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-                        <option value="daily">Harian</option> <option value="weekly">Mingguan</option>
-                        <option value="monthly">Bulanan</option> <option value="yearly">Tahunan</option>
-                      </select>
-                      <input type="date" value={recurringForm.nextDate} onChange={e => setRecurringForm({ ...recurringForm, nextDate: e.target.value })}
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                      <div className="flex gap-2">
-                        <button onClick={handleAddRecurring} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">Simpan</button>
-                        <button onClick={() => setShowRecurringForm(false)} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
-                      </div>
-                    </div>
-                  )}
-                  {recurringTransactions.length === 0 ? (
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center">
-                      <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada recurring</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {recurringTransactions.map(r => {
-                        const daysLeft = differenceInDays(new Date(r.nextDate), new Date());
-                        const isUrgent = daysLeft <= r.reminderDays && daysLeft >= 0;
-                        const cats = r.type === 'income' ? incomeCategories : expenseCategories;
-                        const cat = cats[r.category];
-                        return (
-                          <div key={r.id} className={`bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm ${isUrgent ? 'ring-2 ring-orange-400' : ''}`}>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xl w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center">{cat?.icon}</span>
-                              <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{r.name}</h3>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                  {cat?.name} • {r.frequency === 'daily' ? 'Harian' : r.frequency === 'weekly' ? 'Mingguan' : r.frequency === 'monthly' ? 'Bulanan' : 'Tahunan'}
-                                </p>
-                                <div className="flex items-center gap-1 mt-0.5">
-                                  <Calendar className="w-3 h-3 text-slate-400" />
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    {daysLeft === 0 ? 'Hari ini' : daysLeft > 0 ? `${daysLeft} hari lagi` : 'Terlewat'}
-                                  </p>
-                                  {isUrgent && <Bell className="w-3 h-3 text-orange-500 animate-pulse" />}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className={`text-sm font-bold ${r.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
-                                  {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount).replace('Rp', '').trim()}
-                                </p>
-                                <button onClick={async () => { const ok = await deleteRecurring(r.id); if (ok) notify.info('Dihapus'); }}
-                                  className="p-1 mt-1 active:scale-90">
-                                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+             </div>
+          )}
 
               {/* SETTINGS */}
               {activeMoreTab === 'settings' && (
@@ -1826,6 +2017,233 @@ if (!user) return <AuthScreen />;
           )}
         </main>
 
+      {/* MODAL DETAIL BUDGET */}
+      {viewingBudget && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+          onClick={() => setViewingBudget(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300 border-t sm:border border-slate-200 dark:border-slate-700" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-100 dark:bg-blue-900/40">
+                  💰
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900 dark:text-white leading-tight">
+                    {expenseCategories[viewingBudget.category]?.name || 'Budget'}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Bulan ini
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setViewingBudget(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Budget Details */}
+            <div className="space-y-3">
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Limit</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(viewingBudget.limit)}
+                </p>
+              </div>
+              
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Spent</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(monthlySpending[viewingBudget.category] || 0)}
+                </p>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Remaining</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(viewingBudget.limit - (monthlySpending[viewingBudget.category] || 0))}
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <button 
+              onClick={() => {
+                setEditingBudget(viewingBudget);
+                setViewingBudget(null);
+                setBudgetForm({
+                  category: viewingBudget.category,
+                  limit: viewingBudget.limit.toString()
+                });
+                setShowBudgetForm(true);
+              }}
+              className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 transition-transform shadow-lg shadow-blue-500/20"
+            >
+              ✏️ Edit Budget
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DETAIL GOAL */}
+      {viewingGoal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+          onClick={() => setViewingGoal(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300 border-t sm:border border-slate-200 dark:border-slate-700" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-100 dark:bg-purple-900/40">
+                  {viewingGoal.icon}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900 dark:text-white leading-tight">
+                    {viewingGoal.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Target: {formatCurrency(viewingGoal.targetAmount)}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setViewingGoal(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Goal Details */}
+            <div className="space-y-3">
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Target</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(viewingGoal.targetAmount)}
+                </p>
+              </div>
+              
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Current</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatCurrency(viewingGoal.currentAmount)}
+                </p>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Progress</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {((viewingGoal.currentAmount / viewingGoal.targetAmount) * 100).toFixed(0)}%
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <button 
+              onClick={() => {
+                setEditingGoal(viewingGoal);
+                setViewingGoal(null);
+                setGoalForm({
+                  name: viewingGoal.name,
+                  targetAmount: viewingGoal.targetAmount.toString(),
+                  deadline: viewingGoal.deadline || '',
+                  monthlyContribution: viewingGoal.monthlyContribution ? viewingGoal.monthlyContribution.toString() : '',
+                  icon: viewingGoal.icon
+                });
+                setShowGoalForm(true);
+              }}
+              className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 transition-transform shadow-lg shadow-blue-500/20"
+            >
+              ✏️ Edit Goal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DETAIL RECURRING */}
+      {viewingRecurring && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+          onClick={() => setViewingRecurring(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300 border-t sm:border border-slate-200 dark:border-slate-700" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="text-2xl w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-green-100 dark:bg-green-900/40">
+                  {viewingRecurring.type === 'income' ? '💰' : '💸'}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900 dark:text-white leading-tight">
+                    {viewingRecurring.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {viewingRecurring.frequency === 'daily' ? 'Harian' : viewingRecurring.frequency === 'weekly' ? 'Mingguan' : viewingRecurring.frequency === 'monthly' ? 'Bulanan' : 'Tahunan'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setViewingRecurring(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Recurring Details */}
+            <div className="space-y-3">
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Jumlah</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {viewingRecurring.type === 'income' ? '+' : '-'}{formatCurrency(viewingRecurring.amount)}
+                </p>
+              </div>
+              
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Kategori</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {(viewingRecurring.type === 'income' ? incomeCategories : expenseCategories)[viewingRecurring.category]?.name}
+                </p>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Tanggal Berikutnya</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {format(new Date(viewingRecurring.nextDate), 'dd MMM yyyy', { locale: id })}
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <button 
+              onClick={() => {
+                setEditingRecurring(viewingRecurring);
+                setViewingRecurring(null);
+                setRecurringForm({
+                  name: viewingRecurring.name,
+                  amount: viewingRecurring.amount.toString(),
+                  type: viewingRecurring.type,
+                  category: viewingRecurring.category,
+                  frequency: viewingRecurring.frequency,
+                  nextDate: viewingRecurring.nextDate,
+                  reminderDays: viewingRecurring.reminderDays
+                });
+                setShowRecurringForm(true);
+              }}
+              className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 transition-transform shadow-lg shadow-blue-500/20"
+            >
+              ✏️ Edit Recurring
+            </button>
+          </div>
+        </div>
+      )}
+
         {/* BOTTOM NAVIGATION */}
         <nav 
   className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shadow-2xl z-30"
@@ -1836,19 +2254,20 @@ if (!user) return <AuthScreen />;
               { id: 'input' as TabType, label: 'Input', icon: Plus },
               { id: 'history' as TabType, label: 'Riwayat', icon: Calendar },
               { id: 'more' as TabType, label: 'Lainnya', icon: Menu },
-            ].map(tab => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                  className={`flex flex-col items-center justify-center py-2.5 transition-all active:scale-90 ${isActive ? 'text-blue-500' : 'text-slate-400 dark:text-slate-500'}`}>
-                  <div className={`w-12 h-8 rounded-xl flex items-center justify-center transition-all ${isActive ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-medium mt-0.5">{tab.label}</span>
-                </button>
-              );
-            })}
+           ].map(tab => {
+  const Icon = tab.icon;
+  const isActive = activeTab === tab.id;
+  
+  return (
+    <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+      className={`flex flex-col items-center justify-center py-2.5 transition-all active:scale-90 ${isActive ? 'text-blue-500' : 'text-slate-400 dark:text-slate-500'}`}>
+      <div className={`w-12 h-8 rounded-xl flex items-center justify-center transition-all ${isActive ? 'bg-blue-100 dark:bg-blue-900/40' : ''}`}>
+        <Icon className="w-5 h-5" />
+      </div>
+      <span className="text-[10px] font-medium mt-0.5">{tab.label}</span>
+    </button>
+  );
+})}
           </div>
                 {/* MODAL DETAIL TRANSAKSI */}
       {viewingTransaction && (
