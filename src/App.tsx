@@ -807,7 +807,7 @@ const isLoading = authLoading || dataLoading;
         <div className="flex items-center gap-2">
           <div className={`w-8 h-8 rounded-full animate-pulse ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
           <h1 className={`text-lg font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-            DompetKu {/* 👈 UBAH NAMA APLIKASI DI SINI */}
+            Catelaran-Pro{/* 👈 UBAH NAMA APLIKASI DI SINI */}
           </h1>
         </div>
         <div className="flex gap-2">
