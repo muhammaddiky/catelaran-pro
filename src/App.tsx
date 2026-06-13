@@ -995,7 +995,7 @@ if (!user) return <AuthScreen />;
           <div className="bg-white dark:bg-slate-800 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
             <p className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-1.5">➕ Buat Buku Baru</p>
             <div className="flex gap-1 mb-1.5 flex-wrap">
-              {['📘', '📗', '📕', '📙', '💼', '🏠', '💰', '🎯', '🏪', '✈️'].map(icon => (
+              {['📘', '📗', '📕', '💼', '🏠', '💰', '🏪', '✈️'].map(icon => (
                 <button
                   key={icon}
                   onClick={() => setNewBookIcon(icon)}
