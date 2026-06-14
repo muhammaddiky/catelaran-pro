@@ -145,13 +145,14 @@ export default function CatanKeuangan() {
   const [showSplash, setShowSplash] = useState(true);
   // ========== SUPABASE DATA ==========
 const {
-  books, activeBook, transactions: rawTransactions, budgets: rawBudgets,
-  goals: rawGoals, recurring: rawRecurring, loading: dataLoading,
-  switchBook, createBook, renameBook, deleteBook,
-  addTransaction, updateTransaction, deleteTransaction,
-  addBudget, updateBudget, deleteBudget,  
-  addGoal, updateGoal, deleteGoal,
-  addRecurring, updateRecurring, deleteRecurring,  
+books, activeBook, transactions: rawTransactions, budgets: rawBudgets,
+goals: rawGoals, recurring: rawRecurring, loading: dataLoading,
+switchBook, createBook, renameBook, deleteBook,
+addTransaction, updateTransaction, deleteTransaction,
+addBudget, updateBudget, deleteBudget,
+addGoal, updateGoal, deleteGoal,
+addRecurring, updateRecurring, deleteRecurring,
+goalContributions, addGoalContribution, deleteGoalContribution // ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData();
 
 // Map Supabase data → App types
@@ -206,8 +207,11 @@ const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
 // State untuk Goals
 const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
 const [viewingGoal, setViewingGoal] = useState<FinancialGoal | null>(null);
+const [viewingGoalHistory, setViewingGoalHistory] = useState<string | null>(null);
 const [fundingGoalId, setFundingGoalId] = useState<string | null>(null);
 const [fundingAmount, setFundingAmount] = useState('');
+const [fundingDate, setFundingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+const [fundingNote, setFundingNote] = useState('');
 
 // State untuk Recurring
 const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
@@ -596,22 +600,34 @@ const handleUpdateGoal = async () => {
   }
 };
 
-  const handleAddFundsToGoal = async () => {
-  if (!fundingGoalId || !fundingAmount) { 
-    notify.error('Nominal wajib diisi'); 
-    return; 
+const handleAddFundsToGoal = async () => {
+  if (!fundingGoalId || !fundingAmount) {
+    notify.error('Nominal wajib diisi');
+    return;
   }
-  const p = parseNominal(fundingAmount);
-  if (p > 0) {
-    const g = goals.find(x => x.id === fundingGoalId);
-    if (g) {
-      const result = await updateGoal(fundingGoalId, { current_amount: g.currentAmount + p });
-      if (result) {
-        notify.success(`+${formatCurrency(p)} ditambahkan ke ${g.name} `);
-        setFundingGoalId(null);
-        setFundingAmount('');
-      }
-    }
+  
+  const amount = parseNominal(fundingAmount);
+  if (amount <= 0) {
+    notify.error('Nominal tidak valid');
+    return;
+  }
+  
+  const result = await addGoalContribution({
+    goal_id: fundingGoalId,
+    amount,
+    date: fundingDate,
+    note: fundingNote.trim() || undefined,
+  });
+  
+  if (result) {
+    const goal = goals.find(g => g.id === fundingGoalId);
+    notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goal?.name} 🎉`);
+    
+    // Reset form
+    setFundingGoalId(null);
+    setFundingAmount('');
+    setFundingDate(format(new Date(), 'yyyy-MM-dd'));
+    setFundingNote('');
   }
 };
 
@@ -1875,6 +1891,12 @@ if (!user) return <AuthScreen />;
                 className="w-full bg-blue-500 text-white py-2.5 rounded-xl text-xs font-semibold active:scale-95 transition-transform">
                 + Tambah Dana
               </button>
+              <button 
+              onClick={() => setViewingGoalHistory(g.id)}
+              className="w-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 py-2 rounded-xl text-xs font-semibold active:scale-95 transition-transform mt-2"
+            >
+              📊 Lihat Riwayat ({(goalContributions || []).filter(c => c.goal_id === g.id).length})
+            </button>
             </div>
           );
         })}
@@ -2166,6 +2188,103 @@ if (!user) return <AuthScreen />;
         </div>
       )}
 
+           {/* MODAL RIWAYAT GOAL (FIXED & AMAN DARI CRASH) */}
+      {viewingGoalHistory && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setViewingGoalHistory(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between sticky top-0 bg-white dark:bg-slate-800 pb-2">
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+                📊 Riwayat Tabungan
+              </h3>
+              <button onClick={() => setViewingGoalHistory(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Statistik */}
+            {(() => {
+              const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
+              const total = contributions.reduce((sum, c) => sum + c.amount, 0);
+              const monthsCount = Math.max(1, new Set(contributions.map(c => c.date.substring(0, 7))).size);
+              const avgPerMonth = total / monthsCount;
+              
+              return (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
+                    <p className="text-[10px] text-green-600 dark:text-green-400 mb-0.5">Total Terkumpul</p>
+                    <p className="text-sm font-bold text-green-700 dark:text-green-300">{formatCurrency(total)}</p>
+                  </div>
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+                    <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-0.5">Rata-rata/bulan</p>
+                    <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{formatCurrency(avgPerMonth)}</p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Timeline */}
+            <div className="space-y-3">
+              {(() => {
+                const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
+                
+                if (contributions.length === 0) {
+                  return <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-4">Belum ada riwayat tabungan.</p>;
+                }
+
+                const grouped = contributions.reduce((acc, c) => {
+                  const month = format(new Date(c.date), 'MMMM yyyy', { locale: id });
+                  if (!acc[month]) acc[month] = [];
+                  acc[month].push(c);
+                  return acc;
+                }, {} as Record<string, any[]>);
+
+                return Object.entries(grouped).map(([month, items]) => (
+                  <div key={month}>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{month}</p>
+                    <div className="space-y-2">
+                      {items.map((c: any) => (
+                        <div key={c.id} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                              + {formatCurrency(c.amount)}
+                            </p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {format(new Date(c.date), 'dd MMM yyyy', { locale: id })}
+                            </p>
+                            {c.note && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 italic">
+                                "{c.note}"
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (window.confirm('Hapus riwayat ini? Dana akan dikurangi dari Goal.')) {
+                                await deleteGoalContribution(c.id);
+                              }
+                            }}
+                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg ml-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DETAIL RECURRING */}
       {viewingRecurring && (
         <div 
@@ -2272,50 +2391,108 @@ if (!user) return <AuthScreen />;
 
       {/* MODAL TAMBAH DANA GOAL */}
       {fundingGoalId && (
-        <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
-          onClick={() => setFundingGoalId(null)}
-        >
-          <div 
-            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300 border-t sm:border border-slate-200 dark:border-slate-700" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header Modal */}
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
-                💰 Tambah Dana
-              </h3>
-              <button onClick={() => setFundingGoalId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
-            </div>
-
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Masukkan nominal yang ingin ditambahkan ke goal ini.
-            </p>
-
-            {/* Input Numerik */}
-            <input 
-              type="text" 
-              value={formatNominalDisplay(fundingAmount)} 
-              onChange={(e) => setFundingAmount(parseNominal(e.target.value).toString())}
-              placeholder="Rp 0" 
-              inputMode="numeric" 
-              pattern="[0-9]*"
-              autoFocus
-              className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-4 text-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" 
-            />
-
-            {/* Tombol Aksi */}
-            <button 
-              onClick={handleAddFundsToGoal}
-              className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20"
-            >
-              ✅ Tambahkan Sekarang
-            </button>
-          </div>
+  <div 
+    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+    onClick={() => setFundingGoalId(null)}
+  >
+    <div 
+      className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-lg text-slate-900 dark:text-white">
+            💰 Tambah Dana
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {goals.find(g => g.id === fundingGoalId)?.name}
+          </p>
         </div>
-      )}
+        <button onClick={() => setFundingGoalId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      {/* Info Goal */}
+      {(() => {
+        const goal = goals.find(g => g.id === fundingGoalId);
+        if (!goal) return null;
+        const pct = (goal.currentAmount / goal.targetAmount) * 100;
+        return (
+          <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-slate-500 dark:text-slate-400">Progress</span>
+              <span className="font-bold text-slate-900 dark:text-white">{pct.toFixed(0)}%</span>
+            </div>
+            <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2">
+              <div 
+                className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full"
+                style={{ width: `${Math.min(pct, 100)}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              {formatCurrency(goal.currentAmount)} / {formatCurrency(goal.targetAmount)}
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* Input Nominal */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+          Nominal
+        </label>
+        <input 
+          type="text" 
+          value={formatNominalDisplay(fundingAmount)} 
+          onChange={(e) => setFundingAmount(parseNominal(e.target.value).toString())}
+          placeholder="Rp 0" 
+          inputMode="numeric" 
+          pattern="[0-9]*"
+          autoFocus
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" 
+        />
+      </div>
+
+      {/* Input Tanggal */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+          Tanggal
+        </label>
+        <input 
+          type="date" 
+          value={fundingDate} 
+          onChange={(e) => setFundingDate(e.target.value)}
+          max={format(new Date(), 'yyyy-MM-dd')}
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" 
+        />
+      </div>
+
+      {/* Input Catatan */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+          Catatan <span className="text-slate-400">(opsional)</span>
+        </label>
+        <input 
+          type="text" 
+          value={fundingNote} 
+          onChange={(e) => setFundingNote(e.target.value)}
+          placeholder="Misal: Bonus, sisa gaji, dll"
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" 
+        />
+      </div>
+
+      {/* Tombol Submit */}
+      <button 
+        onClick={handleAddFundsToGoal}
+        className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20"
+      >
+        ✅ Tambahkan Sekarang
+      </button>
+    </div>
+  </div>
+)}
 
                 {/* MODAL DETAIL TRANSAKSI */}
       {viewingTransaction && (

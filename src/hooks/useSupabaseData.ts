@@ -143,7 +143,10 @@ export function useSupabaseData() {
 }, [user, activeBook]);
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
-  useEffect(() => { fetchData(); }, [fetchData]);
+useEffect(() => { 
+  fetchData(); 
+  fetchGoalContributions(); // ✅ TAMBAHKAN BARIS INI
+}, [fetchData]); 
 
   // ========== MIGRASI LOCALSTORAGE ==========
   const migrateLocalStorage = async (userId: string, book: Book) => {
@@ -318,6 +321,85 @@ export function useSupabaseData() {
     return true;
   };
 
+  // ========== GOAL CONTRIBUTIONS ==========
+const [goalContributions, setGoalContributions] = useState<any[]>([]);
+
+const fetchGoalContributions = async () => {
+  if (!user || !activeBook) return;
+  const { data, error } = await supabase
+    .from('goal_contributions')
+    .select('*')
+    .eq('book_id', activeBook.id)
+    .order('date', { ascending: false });
+  
+  if (!error && data) setGoalContributions(data);
+};
+
+const addGoalContribution = async (contribution: {
+  goal_id: string;
+  amount: number;
+  date: string;
+  note?: string;
+}) => {
+  if (!user || !activeBook) return null;
+  
+  const { data, error } = await supabase
+    .from('goal_contributions')
+    .insert({
+      ...contribution,
+      user_id: user.id,
+      book_id: activeBook.id,
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    toast.error('Gagal menambah riwayat');
+    return null;
+  }
+  
+  setGoalContributions(prev => [data, ...prev]);
+  
+  // Update current_amount di goal
+  const goal = goals.find(g => g.id === contribution.goal_id);
+  if (goal) {
+    await updateGoal(contribution.goal_id, {
+      current_amount: goal.currentAmount + contribution.amount
+    });
+  }
+  
+  return data;
+};
+
+const deleteGoalContribution = async (id: string) => {
+  const contribution = goalContributions.find(c => c.id === id);
+  if (!contribution) return false;
+  
+  const { error } = await supabase
+    .from('goal_contributions')
+    .delete()
+    .eq('id', id);
+  
+  if (error) {
+    toast.error('Gagal menghapus riwayat');
+    return false;
+  }
+  
+  setGoalContributions(prev => prev.filter(c => c.id !== id));
+  
+  // Kurangi current_amount di goal
+  const goal = goals.find(g => g.id === contribution.goal_id);
+  if (goal) {
+    await updateGoal(contribution.goal_id, {
+      current_amount: Math.max(0, goal.currentAmount - contribution.amount)
+    });
+  }
+  
+  return true;
+};
+
+
+
   // ========== RECURRING CRUD ==========
   const addRecurring = async (r: Omit<SupabaseRecurring, 'id' | 'user_id' | 'book_id'>) => {
     if (!user || !activeBook) return null;
@@ -348,12 +430,13 @@ export function useSupabaseData() {
   };
 
     return {
-    books, activeBook, transactions, budgets, goals, recurring, loading,
-    switchBook, createBook, renameBook, deleteBook,
-    addTransaction, updateTransaction, deleteTransaction,
-    addBudget, updateBudget, deleteBudget,      // ✅ Tambahkan updateBudget
-    addGoal, updateGoal, deleteGoal,
-    addRecurring, updateRecurring, deleteRecurring,  // ✅ Tambahkan updateRecurring
-    refresh: fetchData,
-  };
+  books, activeBook, transactions, budgets, goals, recurring, loading,
+  switchBook, createBook, renameBook, deleteBook,
+  addTransaction, updateTransaction, deleteTransaction,
+  addBudget, updateBudget, deleteBudget,
+  addGoal, updateGoal, deleteGoal,
+  addRecurring, updateRecurring, deleteRecurring,
+  goalContributions, addGoalContribution, deleteGoalContribution, // ✅ WAJIB ADA DI SINI
+  refresh: fetchData,
+};
 }
