@@ -206,6 +206,8 @@ const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
 // State untuk Goals
 const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
 const [viewingGoal, setViewingGoal] = useState<FinancialGoal | null>(null);
+const [fundingGoalId, setFundingGoalId] = useState<string | null>(null);
+const [fundingAmount, setFundingAmount] = useState('');
 
 // State untuk Recurring
 const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
@@ -594,15 +596,20 @@ const handleUpdateGoal = async () => {
   }
 };
 
-  const addFundsToGoal = async (id: string) => {
-  const a = prompt('Nominal yang ditambahkan:');
-  if (a) {
-    const p = parseNominal(a);
-    if (p > 0) {
-      const g = goals.find(x => x.id === id);
-      if (g) {
-        const result = await updateGoal(id, { current_amount: g.currentAmount + p });
-        if (result) notify.success(`+${formatCurrency(p)} ditambahkan`);
+  const handleAddFundsToGoal = async () => {
+  if (!fundingGoalId || !fundingAmount) { 
+    notify.error('Nominal wajib diisi'); 
+    return; 
+  }
+  const p = parseNominal(fundingAmount);
+  if (p > 0) {
+    const g = goals.find(x => x.id === fundingGoalId);
+    if (g) {
+      const result = await updateGoal(fundingGoalId, { current_amount: g.currentAmount + p });
+      if (result) {
+        notify.success(`+${formatCurrency(p)} ditambahkan ke ${g.name} `);
+        setFundingGoalId(null);
+        setFundingAmount('');
       }
     }
   }
@@ -1864,7 +1871,7 @@ if (!user) return <AuthScreen />;
                   </div>
                 ) : null}
               </div>
-              <button onClick={() => addFundsToGoal(g.id)}
+              <button onClick={() => setFundingGoalId(g.id)}
                 className="w-full bg-blue-500 text-white py-2.5 rounded-xl text-xs font-semibold active:scale-95 transition-transform">
                 + Tambah Dana
               </button>
@@ -2262,6 +2269,54 @@ if (!user) return <AuthScreen />;
   );
 })}
           </div>
+
+      {/* MODAL TAMBAH DANA GOAL */}
+      {fundingGoalId && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" 
+          onClick={() => setFundingGoalId(null)}
+        >
+          <div 
+            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 duration-300 border-t sm:border border-slate-200 dark:border-slate-700" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+                💰 Tambah Dana
+              </h3>
+              <button onClick={() => setFundingGoalId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Masukkan nominal yang ingin ditambahkan ke goal ini.
+            </p>
+
+            {/* Input Numerik */}
+            <input 
+              type="text" 
+              value={formatNominalDisplay(fundingAmount)} 
+              onChange={(e) => setFundingAmount(parseNominal(e.target.value).toString())}
+              placeholder="Rp 0" 
+              inputMode="numeric" 
+              pattern="[0-9]*"
+              autoFocus
+              className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-4 text-xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" 
+            />
+
+            {/* Tombol Aksi */}
+            <button 
+              onClick={handleAddFundsToGoal}
+              className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20"
+            >
+              ✅ Tambahkan Sekarang
+            </button>
+          </div>
+        </div>
+      )}
+
                 {/* MODAL DETAIL TRANSAKSI */}
       {viewingTransaction && (
         <div 
