@@ -321,7 +321,8 @@ useEffect(() => {
     return true;
   };
 
-  // ========== GOAL CONTRIBUTIONS ==========
+
+// ========== GOAL CONTRIBUTIONS CRUD ==========
 const [goalContributions, setGoalContributions] = useState<any[]>([]);
 
 const fetchGoalContributions = async () => {
@@ -343,6 +344,9 @@ const addGoalContribution = async (contribution: {
 }) => {
   if (!user || !activeBook) return null;
   
+  // Gunakan nama variabel 'targetGoal' agar tidak bentrok dengan scope lain
+  const targetGoal = goals.find(g => g.id === contribution.goal_id);
+  
   const { data, error } = await supabase
     .from('goal_contributions')
     .insert({
@@ -355,22 +359,57 @@ const addGoalContribution = async (contribution: {
   
   if (error) {
     toast.error('Gagal menambah riwayat');
+    console.error('Add Goal Contribution Error:', error);
     return null;
   }
   
   setGoalContributions(prev => [data, ...prev]);
+  
+  // Update progress goal secara otomatis
+  if (targetGoal) {
+    const newAmount = (targetGoal.current_amount || 0) + contribution.amount;
+    await updateGoal(contribution.goal_id, {
+      current_amount: newAmount
+    });
+  }
+  
+  return data;
+};
 
-  await fetchData();
-  
-  // ✅ KODE BARU (FIELD NAME BENAR)
-const goal = goals.find(g => g.id === contribution.goal_id);
-if (goal) {
-  const newAmount = (goal.current_amount || 0) + contribution.amount;
-  await updateGoal(contribution.goal_id, {
-    current_amount: newAmount
-  });
-}
-  
+const updateGoalContribution = async (id: string, updates: { amount?: number; date?: string; note?: string }) => {
+  // Cari data LAMA sebelum update
+  const oldContribution = goalContributions.find(c => c.id === id);
+  if (!oldContribution) return null;
+
+  const { data, error } = await supabase
+    .from('goal_contributions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    toast.error('Gagal mengedit riwayat');
+    console.error('Update Goal Contribution Error:', error);
+    return null;
+  }
+
+  setGoalContributions(prev => prev.map(c => c.id === id ? data : c));
+
+  // Hitung selisih (delta) untuk menyesuaikan progress goal
+  const newAmount = updates.amount ?? oldContribution.amount;
+  const delta = newAmount - oldContribution.amount;
+
+  if (delta !== 0) {
+    const targetGoal = goals.find(g => g.id === oldContribution.goal_id);
+    if (targetGoal) {
+      const safeNewAmount = Math.max(0, targetGoal.current_amount + delta);
+      await updateGoal(oldContribution.goal_id, {
+        current_amount: safeNewAmount
+      });
+    }
+  }
+
   return data;
 };
 
@@ -390,11 +429,11 @@ const deleteGoalContribution = async (id: string) => {
   
   setGoalContributions(prev => prev.filter(c => c.id !== id));
   
-  // Kurangi current_amount di goal
-  const goal = goals.find(g => g.id === contribution.goal_id);
-  if (goal) {
+  // Kurangi progress goal saat dihapus
+  const targetGoal = goals.find(g => g.id === contribution.goal_id);
+  if (targetGoal) {
     await updateGoal(contribution.goal_id, {
-      current_amount: Math.max(0, goal.currentAmount - contribution.amount)
+      current_amount: Math.max(0, targetGoal.current_amount - contribution.amount)
     });
   }
   
@@ -439,7 +478,7 @@ const deleteGoalContribution = async (id: string) => {
   addBudget, updateBudget, deleteBudget,
   addGoal, updateGoal, deleteGoal,
   addRecurring, updateRecurring, deleteRecurring,
-  goalContributions, addGoalContribution, deleteGoalContribution, // ✅ WAJIB ADA DI SINI
+  goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, // ✅ WAJIB ADA DI SINI
   refresh: fetchData,
 };
 }

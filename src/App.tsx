@@ -152,7 +152,7 @@ addTransaction, updateTransaction, deleteTransaction,
 addBudget, updateBudget, deleteBudget,
 addGoal, updateGoal, deleteGoal,
 addRecurring, updateRecurring, deleteRecurring,
-goalContributions, addGoalContribution, deleteGoalContribution, refresh// ✅ TAMBAHKAN BARIS INI
+goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, refresh// ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData();
 
 // Map Supabase data → App types
@@ -214,6 +214,11 @@ const [fundingDate, setFundingDate] = useState(format(new Date(), 'yyyy-MM-dd'))
 const [fundingTime, setFundingTime] = useState(format(new Date(), 'HH:mm')); 
 const [fundingNote, setFundingNote] = useState('');
 const [fundingAsExpense, setFundingAsExpense] = useState(false);
+const [editingContributionId, setEditingContributionId] = useState<string | null>(null);
+const [editingContributionAmount, setEditingContributionAmount] = useState('');
+const [editingContributionDate, setEditingContributionDate] = useState('');
+const [editingContributionTime, setEditingContributionTime] = useState('');
+const [editingContributionNote, setEditingContributionNote] = useState('');
 
 // State untuk Recurring
 const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
@@ -603,54 +608,88 @@ const handleUpdateGoal = async () => {
 };
 
 const handleAddFundsToGoal = async () => {
-  if (!fundingGoalId || !fundingAmount) {
-    notify.error('Nominal wajib diisi');
-    return;
+  if (!fundingGoalId || !fundingAmount) { 
+    notify.error('Nominal wajib diisi'); 
+    return; 
   }
   
   const amount = parseNominal(fundingAmount);
-  if (amount <= 0) {
-    notify.error('Nominal tidak valid');
-    return;
+  if (amount <= 0) { 
+    notify.error('Nominal tidak valid'); 
+    return; 
   }
 
-  // ✅ 1. Simpan riwayat kontribusi goal (selalu dilakukan)
+  // 1. Simpan ke riwayat kontribusi
+  const dateTimeStr = new Date(`${fundingDate}T${fundingTime}:00`).toISOString();
   const result = await addGoalContribution({
-  goal_id: fundingGoalId,
-  amount,
-  date: `${fundingDate} ${fundingTime}`,  // ← GABUNGKAN TANGGAL + WAKTU
-  note: fundingNote.trim() || undefined,
-});
+    goal_id: fundingGoalId,
+    amount,
+    date: dateTimeStr,
+    note: fundingNote.trim() || undefined,
+  });
+
   if (result) {
-    // ✅ 2. Jika checkbox dicentang, JUGA buat transaksi pengeluaran
+    // 2. Update current_amount di Goal agar progress bar sinkron
+    const goal = goals.find(g => g.id === fundingGoalId);
+    if (goal) {
+      await updateGoal(fundingGoalId, { 
+        current_amount: (goal.current_amount || 0) + amount 
+      });
+    }
+
+    // 3. Opsional: Catat sebagai transaksi pengeluaran jika dicentang
     if (fundingAsExpense) {
-      const goal = goals.find(g => g.id === fundingGoalId);
-      const transResult = await addTransaction({
+      await addTransaction({
         date: fundingDate,
         type: 'expense',
-        category: 'investasi_exp', // Kategori "Investasi/Tabungan"
-        description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
+        category: 'investasi_exp',
+        description: `Tabungan Goal: ${goal?.name}`,
         amount,
         notes: `Auto dari Goal "${goal?.name}"`,
       });
-      
-      if (transResult) {
-        notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran 🎉`);
-      } else {
-        notify.error('Dana masuk ke goal, tapi gagal mencatat transaksi.');
-      }
+      notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran 🎉`);
     } else {
-      const goal = goals.find(g => g.id === fundingGoalId);
       notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goal?.name} 🎉`);
     }
 
-    // ✅ 3. Reset semua form termasuk checkbox
+    // Reset Form
     setFundingGoalId(null);
     setFundingAmount('');
     setFundingDate(format(new Date(), 'yyyy-MM-dd'));
     setFundingTime(format(new Date(), 'HH:mm'));
     setFundingNote('');
-    setFundingAsExpense(false); // ✅ RESET CHECKBOX
+    setFundingAsExpense(false);
+  }
+};
+
+const handleUpdateContribution = async () => {
+  if (!editingContributionId || !editingContributionAmount) {
+    notify.error('Nominal wajib diisi');
+    return;
+  }
+
+  const amount = parseNominal(editingContributionAmount);
+  if (amount <= 0) {
+    notify.error('Nominal tidak valid');
+    return;
+  }
+
+  // Gabungkan tanggal + waktu menjadi format ISOString yang benar
+  const dateTimeStr = new Date(`${editingContributionDate}T${editingContributionTime}:00`).toISOString();
+
+  const result = await updateGoalContribution(editingContributionId, {
+    amount,
+    date: dateTimeStr,
+    note: editingContributionNote.trim() || undefined,
+  });
+
+  if (result) {
+    notify.success('Riwayat berhasil diperbarui ✅');
+    setEditingContributionId(null);
+    setEditingContributionAmount('');
+    setEditingContributionDate('');
+    setEditingContributionTime('');
+    setEditingContributionNote('');
   }
 };
 
@@ -2211,106 +2250,128 @@ if (!user) return <AuthScreen />;
         </div>
       )}
 
-           {/* MODAL RIWAYAT GOAL (FIXED & AMAN DARI CRASH) */}
-      {viewingGoalHistory && (
-        <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
-          onClick={() => setViewingGoalHistory(null)}
-        >
-          <div 
-            className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between sticky top-0 bg-white dark:bg-slate-800 pb-2">
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white">
-                📊 Riwayat Tabungan
-              </h3>
-              <button onClick={() => setViewingGoalHistory(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
+          {/* MODAL RIWAYAT GOAL (FIXED) */}
+{viewingGoalHistory && (
+  <div 
+    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+    onClick={() => setViewingGoalHistory(null)}
+  >
+    <div 
+      className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4 max-h-[80vh] overflow-y-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between sticky top-0 bg-white dark:bg-slate-800 pb-2">
+        <h3 className="font-bold text-lg text-slate-900 dark:text-white">📊 Riwayat Tabungan</h3>
+        <button onClick={() => setViewingGoalHistory(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      {/* Statistik */}
+      {(() => {
+        const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
+        const total = contributions.reduce((sum, c) => sum + c.amount, 0);
+        const monthsCount = Math.max(1, new Set(contributions.map(c => c.date.substring(0, 7))).size);
+        const avgPerMonth = total / monthsCount;
+        
+        return (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
+              <p className="text-[10px] text-green-600 dark:text-green-400 mb-0.5">Total Terkumpul</p>
+              <p className="text-sm font-bold text-green-700 dark:text-green-300">{formatCurrency(total)}</p>
             </div>
-
-            {/* Statistik */}
-            {(() => {
-              const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
-              const total = contributions.reduce((sum, c) => sum + c.amount, 0);
-              const monthsCount = Math.max(1, new Set(contributions.map(c => c.date.substring(0, 7))).size);
-              const avgPerMonth = total / monthsCount;
-              
-              return (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
-                    <p className="text-[10px] text-green-600 dark:text-green-400 mb-0.5">Total Terkumpul</p>
-                    <p className="text-sm font-bold text-green-700 dark:text-green-300">{formatCurrency(total)}</p>
-                  </div>
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
-                    <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-0.5">Rata-rata/bulan</p>
-                    <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{formatCurrency(avgPerMonth)}</p>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Timeline */}
-            <div className="space-y-3">
-              {(() => {
-                const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
-                
-                if (contributions.length === 0) {
-                  return <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-4">Belum ada riwayat tabungan.</p>;
-                }
-
-                const grouped = contributions.reduce((acc, c) => {
-                  const month = format(new Date(c.date), 'MMMM yyyy', { locale: id });
-                  if (!acc[month]) acc[month] = [];
-                  acc[month].push(c);
-                  return acc;
-                }, {} as Record<string, any[]>);
-
-                return Object.entries(grouped).map(([month, items]) => (
-                  <div key={month}>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{month}</p>
-                    <div className="space-y-2">
-                      {items.map((c: any) => (
-                        <div key={c.id} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 flex justify-between items-start">
-                          <div className="flex-1">
-                            <p className="text-sm font-bold text-green-600 dark:text-green-400">
-                              + {formatCurrency(c.amount)}
-                            </p>
-                            <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                            <Calendar className="w-3 h-3" />
-                            <span>{format(new Date(c.date), 'dd MMM yyyy', { locale: id })}</span>
-                            <span>•</span>
-                            <Clock className="w-3 h-3" />
-                            <span>{format(new Date(c.date), 'HH:mm')}</span>
-                          </div>
-                            {c.note && (
-                              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 italic">
-                                "{c.note}"
-                              </p>
-                            )}
-                          </div>
-                          <button
-                            onClick={async () => {
-                              if (window.confirm('Hapus riwayat ini? Dana akan dikurangi dari Goal.')) {
-                                await deleteGoalContribution(c.id);
-                              }
-                            }}
-                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg ml-2"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ));
-              })()}
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
+              <p className="text-[10px] text-blue-600 dark:text-blue-400 mb-0.5">Rata-rata/bulan</p>
+              <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{formatCurrency(avgPerMonth)}</p>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Timeline List */}
+      <div className="space-y-3">
+        {(() => {
+          const contributions = (goalContributions || []).filter(c => c.goal_id === viewingGoalHistory);
+          
+          if (contributions.length === 0) {
+            return <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-4">Belum ada riwayat tabungan.</p>;
+          }
+
+          const grouped = contributions.reduce((acc, c) => {
+            const month = format(new Date(c.date), 'MMMM yyyy', { locale: id });
+            if (!acc[month]) acc[month] = [];
+            acc[month].push(c);
+            return acc;
+          }, {} as Record<string, any[]>);
+
+          return Object.entries(grouped).map(([month, items]) => (
+            <div key={month}>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{month}</p>
+              <div className="space-y-2">
+                {items.map((c: any) => (
+                  <div key={c.id} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 flex justify-between items-start group">
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                        + {formatCurrency(c.amount)}
+                      </p>
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <Calendar className="w-3 h-3" />
+                        <span>{format(new Date(c.date), 'dd MMM yyyy', { locale: id })}</span>
+                        <span>•</span>
+                        <Clock className="w-3 h-3" />
+                        <span>{format(new Date(c.date), 'HH:mm')}</span>
+                      </div>
+                      {c.note && (
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 italic">"{c.note}"</p>
+                      )}
+                    </div>
+                    
+                    {/* Aksi Edit & Hapus */}
+                <div className="flex gap-1 ml-2">
+                  {/* ✅ TOMBOL EDIT BARU */}
+                  <button
+                    onClick={() => {
+                      // Set state edit
+                      setEditingContributionId(c.id);
+                      setEditingContributionAmount(c.amount.toString());
+                      
+                      // Parse tanggal & waktu dari string ISO
+                      const d = new Date(c.date);
+                      setEditingContributionDate(format(d, 'yyyy-MM-dd'));
+                      setEditingContributionTime(format(d, 'HH:mm'));
+                      setEditingContributionNote(c.note || '');
+                      
+                      // Tutup modal riwayat agar modal edit langsung fokus
+                      setViewingGoalHistory(null); 
+                    }}
+                    className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 text-blue-500" />
+                  </button>
+
+                  {/* TOMBOL HAPUS */}
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('Hapus riwayat ini? Dana akan dikurangi dari Goal.')) {
+                        await deleteGoalContribution(c.id);
+                      }
+                    }}
+                    className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                  </button>
+                </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ));
+        })()}
+      </div>
+    </div>
+  </div>
+)}
 
       {/* MODAL DETAIL RECURRING */}
       {viewingRecurring && (
@@ -2415,6 +2476,88 @@ if (!user) return <AuthScreen />;
   );
 })}
           </div>
+
+{/* MODAL EDIT RIWAYAT GOAL CONTRIBUTION */}
+{editingContributionId && (
+  <div
+    className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+    onClick={() => setEditingContributionId(null)}
+  >
+    <div
+      className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+          ✏️ Edit Riwayat
+        </h3>
+        <button onClick={() => setEditingContributionId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      {/* Input Nominal */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
+        <input
+          type="text"
+          value={formatNominalDisplay(editingContributionAmount)}
+          onChange={(e) => setEditingContributionAmount(parseNominal(e.target.value).toString())}
+          placeholder="Rp 0"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoFocus
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white"
+        />
+      </div>
+
+      {/* Input Tanggal */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
+        <input
+          type="date"
+          value={editingContributionDate}
+          onChange={(e) => setEditingContributionDate(e.target.value)}
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white"
+        />
+      </div>
+
+      {/* Input Waktu */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Waktu</label>
+        <input
+          type="time"
+          value={editingContributionTime}
+          onChange={(e) => setEditingContributionTime(e.target.value)}
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white"
+        />
+      </div>
+
+      {/* Input Catatan */}
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+          Catatan <span className="text-slate-400">(opsional)</span>
+        </label>
+        <input
+          type="text"
+          value={editingContributionNote}
+          onChange={(e) => setEditingContributionNote(e.target.value)}
+          placeholder="Misal: Bonus, sisa gaji, dll"
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white"
+        />
+      </div>
+
+      {/* Tombol Simpan */}
+      <button
+        onClick={handleUpdateContribution}
+        className="w-full bg-blue-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-blue-500/20"
+      >
+        💾 Simpan Perubahan
+      </button>
+    </div>
+  </div>
+)}
 
       {/* MODAL TAMBAH DANA GOAL */}
       {fundingGoalId && (
