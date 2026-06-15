@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Edit2, TrendingUp, Calendar, BarChart3,
   Home, Cloud, CheckCircle, DollarSign, Zap, Lightbulb, AlertTriangle,
   Target, Repeat, Bell, Sun, Moon, Download, Settings as SettingsIcon,
-  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, X, Eye
+  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, X, Eye, Clock
 } from 'lucide-react';
 import {
   PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
@@ -152,7 +152,7 @@ addTransaction, updateTransaction, deleteTransaction,
 addBudget, updateBudget, deleteBudget,
 addGoal, updateGoal, deleteGoal,
 addRecurring, updateRecurring, deleteRecurring,
-goalContributions, addGoalContribution, deleteGoalContribution // ✅ TAMBAHKAN BARIS INI
+goalContributions, addGoalContribution, deleteGoalContribution, refresh// ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData();
 
 // Map Supabase data → App types
@@ -211,7 +211,9 @@ const [viewingGoalHistory, setViewingGoalHistory] = useState<string | null>(null
 const [fundingGoalId, setFundingGoalId] = useState<string | null>(null);
 const [fundingAmount, setFundingAmount] = useState('');
 const [fundingDate, setFundingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+const [fundingTime, setFundingTime] = useState(format(new Date(), 'HH:mm')); 
 const [fundingNote, setFundingNote] = useState('');
+const [fundingAsExpense, setFundingAsExpense] = useState(false);
 
 // State untuk Recurring
 const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
@@ -611,23 +613,44 @@ const handleAddFundsToGoal = async () => {
     notify.error('Nominal tidak valid');
     return;
   }
-  
+
+  // ✅ 1. Simpan riwayat kontribusi goal (selalu dilakukan)
   const result = await addGoalContribution({
-    goal_id: fundingGoalId,
-    amount,
-    date: fundingDate,
-    note: fundingNote.trim() || undefined,
-  });
-  
+  goal_id: fundingGoalId,
+  amount,
+  date: `${fundingDate} ${fundingTime}`,  // ← GABUNGKAN TANGGAL + WAKTU
+  note: fundingNote.trim() || undefined,
+});
   if (result) {
-    const goal = goals.find(g => g.id === fundingGoalId);
-    notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goal?.name} 🎉`);
-    
-    // Reset form
+    // ✅ 2. Jika checkbox dicentang, JUGA buat transaksi pengeluaran
+    if (fundingAsExpense) {
+      const goal = goals.find(g => g.id === fundingGoalId);
+      const transResult = await addTransaction({
+        date: fundingDate,
+        type: 'expense',
+        category: 'investasi_exp', // Kategori "Investasi/Tabungan"
+        description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
+        amount,
+        notes: `Auto dari Goal "${goal?.name}"`,
+      });
+      
+      if (transResult) {
+        notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran 🎉`);
+      } else {
+        notify.error('Dana masuk ke goal, tapi gagal mencatat transaksi.');
+      }
+    } else {
+      const goal = goals.find(g => g.id === fundingGoalId);
+      notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goal?.name} 🎉`);
+    }
+
+    // ✅ 3. Reset semua form termasuk checkbox
     setFundingGoalId(null);
     setFundingAmount('');
     setFundingDate(format(new Date(), 'yyyy-MM-dd'));
+    setFundingTime(format(new Date(), 'HH:mm'));
     setFundingNote('');
+    setFundingAsExpense(false); // ✅ RESET CHECKBOX
   }
 };
 
@@ -2255,9 +2278,13 @@ if (!user) return <AuthScreen />;
                             <p className="text-sm font-bold text-green-600 dark:text-green-400">
                               + {formatCurrency(c.amount)}
                             </p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                              {format(new Date(c.date), 'dd MMM yyyy', { locale: id })}
-                            </p>
+                            <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                            <Calendar className="w-3 h-3" />
+                            <span>{format(new Date(c.date), 'dd MMM yyyy', { locale: id })}</span>
+                            <span>•</span>
+                            <Clock className="w-3 h-3" />
+                            <span>{format(new Date(c.date), 'HH:mm')}</span>
+                          </div>
                             {c.note && (
                               <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 italic">
                                 "{c.note}"
@@ -2469,6 +2496,19 @@ if (!user) return <AuthScreen />;
         />
       </div>
 
+{/* Input Waktu - TAMBAH INI */}
+<div>
+  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+    Waktu
+  </label>
+  <input 
+    type="time" 
+    value={fundingTime} 
+    onChange={(e) => setFundingTime(e.target.value)}
+    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" 
+  />
+</div>
+
       {/* Input Catatan */}
       <div>
         <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
@@ -2482,6 +2522,24 @@ if (!user) return <AuthScreen />;
           className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" 
         />
       </div>
+
+      {/* ✅ CHECKBOX OPSIONAL - TAMBAH INI */}
+<label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl cursor-pointer active:scale-[0.98] transition-transform border border-transparent hover:border-blue-300 dark:hover:border-blue-600">
+  <input 
+    type="checkbox" 
+    checked={fundingAsExpense} 
+    onChange={(e) => setFundingAsExpense(e.target.checked)}
+    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500" 
+  />
+  <div className="flex-1">
+    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+      💰 Catat sebagai penarikan/tabungan terpisah
+    </p>
+    <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">
+      Centang jika uang ini benar-benar keluar dari rekening utama (misal: transfer ke rekening tabungan terpisah). Jangan centang jika hanya mengalokasikan uang yang sudah ada.
+    </p>
+  </div>
+</label>
 
       {/* Tombol Submit */}
       <button 

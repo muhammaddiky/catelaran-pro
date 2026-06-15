@@ -359,14 +359,17 @@ const addGoalContribution = async (contribution: {
   }
   
   setGoalContributions(prev => [data, ...prev]);
+
+  await fetchData();
   
-  // Update current_amount di goal
-  const goal = goals.find(g => g.id === contribution.goal_id);
-  if (goal) {
-    await updateGoal(contribution.goal_id, {
-      current_amount: goal.currentAmount + contribution.amount
-    });
-  }
+  // ✅ KODE BARU (FIELD NAME BENAR)
+const goal = goals.find(g => g.id === contribution.goal_id);
+if (goal) {
+  const newAmount = (goal.current_amount || 0) + contribution.amount;
+  await updateGoal(contribution.goal_id, {
+    current_amount: newAmount
+  });
+}
   
   return data;
 };
