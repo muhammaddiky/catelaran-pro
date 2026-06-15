@@ -152,7 +152,8 @@ addTransaction, updateTransaction, deleteTransaction,
 addBudget, updateBudget, deleteBudget,
 addGoal, updateGoal, deleteGoal,
 addRecurring, updateRecurring, deleteRecurring,
-goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, refresh// ✅ TAMBAHKAN BARIS INI
+goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, 
+refresh// ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData();
 
 // Map Supabase data → App types
@@ -685,6 +686,10 @@ const handleUpdateContribution = async () => {
 
   if (result) {
     notify.success('Riwayat berhasil diperbarui ✅');
+
+    // ✅ PENTING: Refresh semua data dari Supabase agar progress bar sinkron
+    if (refresh) await refresh(); 
+    
     setEditingContributionId(null);
     setEditingContributionAmount('');
     setEditingContributionDate('');
