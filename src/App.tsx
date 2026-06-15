@@ -3,7 +3,8 @@ import {
   Plus, Trash2, Edit2, TrendingUp, Calendar, BarChart3,
   Home, Cloud, CheckCircle, DollarSign, Zap, Lightbulb, AlertTriangle,
   Target, Repeat, Bell, Sun, Moon, Download, Settings as SettingsIcon,
-  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, X, Eye, Clock
+  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, X, Eye, Clock,
+  EyeOff
 } from 'lucide-react';
 import {
   PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
@@ -143,6 +144,8 @@ const APPS_SCRIPT_CODE = `function doPost(e) { try { const sheet = SpreadsheetAp
 export default function CatanKeuangan() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
   const [showSplash, setShowSplash] = useState(true);
+  const [showIncome, setShowIncome] = useState(true);
+  const [showSavings, setShowSavings] = useState(true);
   // ========== SUPABASE DATA ==========
 const {
 books, activeBook, transactions: rawTransactions, budgets: rawBudgets,
@@ -1168,13 +1171,29 @@ if (!user) return <AuthScreen />;
               </div>
               
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-4 shadow-lg shadow-green-500/20">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <ArrowDownLeft className="w-3.5 h-3.5 text-green-100" />
-                    <p className="text-[11px] text-green-50 font-medium">Pemasukan</p>
-                  </div>
-                  <p className="text-sm font-bold text-white break-words">{formatCurrency(monthlyIncome).replace('Rp', 'Rp ')}</p>
+               <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-4 shadow-lg shadow-green-500/20">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <ArrowDownLeft className="w-3.5 h-3.5 text-green-100" />
+                  <p className="text-[11px] text-green-50 font-medium">Pemasukan</p>
                 </div>
+                <button
+                  onClick={() => setShowIncome(!showIncome)}
+                  className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full"
+                >
+                  {showIncome ? (
+                    <Eye className="w-4 h-4 text-green-100" />
+                  ) : (
+                    <EyeOff className="w-4 h-4 text-green-100" />
+                  )}
+                </button>
+              </div>
+              <p className="text-sm font-bold text-white break-words">
+                {showIncome 
+                  ? formatCurrency(monthlyIncome).replace('Rp', 'Rp ') 
+                  : '••••••••'}
+              </p>
+            </div> 
                 <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-4 shadow-lg shadow-red-500/20">
                   <div className="flex items-center gap-1.5 mb-1">
                     <ArrowUpRight className="w-3.5 h-3.5 text-red-100" />
@@ -1183,11 +1202,27 @@ if (!user) return <AuthScreen />;
                   <p className="text-sm font-bold text-white break-words">{formatCurrency(monthlyExpense).replace('Rp', 'Rp ')}</p>
                 </div>
                 <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-4 shadow-lg shadow-purple-500/20">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Zap className="w-3.5 h-3.5 text-purple-100" />
-                    <p className="text-[11px] text-purple-50 font-medium">Tabungan</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-purple-100" />
+                      <p className="text-[11px] text-purple-50 font-medium">Tabungan</p>
+                    </div>
+                    <button
+                      onClick={() => setShowSavings(!showSavings)}
+                      className="p-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-full"
+                    >
+                      {showSavings ? (
+                        <Eye className="w-4 h-4 text-purple-100" />
+                      ) : (
+                        <EyeOff className="w-4 h-4 text-purple-100" />
+                      )}
+                    </button>
                   </div>
-                  <p className="text-sm font-bold text-white break-words">{formatCurrency(savings).replace('Rp', 'Rp ')}</p>
+                  <p className="text-sm font-bold text-white break-words">
+                    {showSavings 
+                      ? formatCurrency(savings).replace('Rp', 'Rp ') 
+                      : '••••••••'}
+                  </p>
                 </div>
                 <div className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl p-4 shadow-lg shadow-blue-500/20">
                   <div className="flex items-center gap-1.5 mb-1">
@@ -1198,22 +1233,79 @@ if (!user) return <AuthScreen />;
                 </div>
               </div>
 
-              {pieData.length > 0 && (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 shadow-md">
-                  <h3 className="font-bold text-sm mb-2 px-1 text-slate-900 dark:text-white">📊 Breakdown Bulan Ini</h3>
-                  <div style={{ width: '100%', height: 240, overflow: 'visible' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RePieChart margin={{ top: 15, right: 25, left: 25, bottom: 15 }}>
-                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={2} dataKey="value" label={renderCustomizedLabel} labelLine={false}>
-                          {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend content={renderPieLegend} />
-                      </RePieChart>
-                    </ResponsiveContainer>
+                        {/* BREAKDOWN BULAN INI - DONUT CHART + LIST */}
+          {pieData.length > 0 && (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-md">
+              <h3 className="font-bold text-sm mb-4 px-1 text-slate-900 dark:text-white uppercase tracking-wide">
+                Pengeluaran Per Kategori
+              </h3>
+              
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                {/* Bagian Kiri: Donut Chart */}
+                <div className="relative w-40 h-40 flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RePieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <Pie 
+                        data={pieData} 
+                        cx="50%" 
+                        cy="50%" 
+                        innerRadius={55} 
+                        outerRadius={75} 
+                        paddingAngle={2} 
+                        dataKey="value" 
+                        stroke="none"
+                      >
+                        {pieData.map((_, i) => (
+                          <Cell key={`cell-${i}`} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </RePieChart>
+                  </ResponsiveContainer>
+                  
+                  {/* Text Total di Tengah Donut */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Total</span>
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      {formatCompact(pieData.reduce((sum, d) => sum + d.value, 0))}
+                    </span>
                   </div>
                 </div>
-              )}
+
+                {/* Bagian Kanan: List Detail */}
+                <div className="flex-1 w-full space-y-3">
+                  {pieData.sort((a, b) => b.value - a.value).map((entry, index) => {
+                    const total = pieData.reduce((sum, d) => sum + d.value, 0);
+                    const pct = total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0;
+                    
+                    return (
+                      <div key={index} className="flex items-center justify-between group">
+                        <div className="flex items-center gap-2.5">
+                          {/* Warna Indikator */}
+                          <div 
+                            className="w-3 h-3 rounded-full shadow-sm" 
+                            style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} 
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight">
+                              {entry.fullName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                              {pct}%
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Nominal */}
+                        <span className="text-xs font-bold text-slate-900 dark:text-white tabular-nums">
+                          {formatCurrency(entry.value)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
                 <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white">📈 6 Bulan Terakhir</h3>

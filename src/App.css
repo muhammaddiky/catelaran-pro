@@ -182,3 +182,12 @@
     border-right-color: var(--border);
   }
 }
+
+
+/* Efek transisi untuk nilai yang disembunyikan */
+.value-mask {
+  transition: opacity 0.3s ease-in-out;
+}
+.value-mask.hidden {
+  opacity: 0;
+}
