@@ -609,19 +609,21 @@ const handleUpdateGoal = async () => {
 };
 
 const handleAddFundsToGoal = async () => {
-  if (!fundingGoalId || !fundingAmount) { 
-    notify.error('Nominal wajib diisi'); 
-    return; 
+  if (!fundingGoalId || !fundingAmount) {
+    notify.error('Nominal wajib diisi');
+    return;
   }
   
   const amount = parseNominal(fundingAmount);
-  if (amount <= 0) { 
-    notify.error('Nominal tidak valid'); 
-    return; 
+  if (amount <= 0) {
+    notify.error('Nominal tidak valid');
+    return;
   }
 
-  // 1. Simpan ke riwayat kontribusi
+  // ✅ FIX 1: Gabungkan Tanggal + Waktu agar jam akurat (bukan 07:00)
   const dateTimeStr = new Date(`${fundingDate}T${fundingTime}:00`).toISOString();
+
+  // ✅ FIX 2: Simpan ke riwayat kontribusi dulu
   const result = await addGoalContribution({
     goal_id: fundingGoalId,
     amount,
@@ -630,21 +632,21 @@ const handleAddFundsToGoal = async () => {
   });
 
   if (result) {
-    // 2. Update current_amount di Goal agar progress bar sinkron
+    // ✅ FIX 3: Update progress goal secara manual agar sinkron
     const goal = goals.find(g => g.id === fundingGoalId);
     if (goal) {
       await updateGoal(fundingGoalId, { 
-        current_amount: (goal.current_amount || 0) + amount 
+        current_amount: (goal.currentAmount || 0) + amount 
       });
     }
 
-    // 3. Opsional: Catat sebagai transaksi pengeluaran jika dicentang
+    // Opsional: Catat sebagai transaksi pengeluaran jika dicentang
     if (fundingAsExpense) {
       await addTransaction({
         date: fundingDate,
         type: 'expense',
         category: 'investasi_exp',
-        description: `Tabungan Goal: ${goal?.name}`,
+        description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
         amount,
         notes: `Auto dari Goal "${goal?.name}"`,
       });
@@ -689,7 +691,7 @@ const handleUpdateContribution = async () => {
 
     // ✅ PENTING: Refresh semua data dari Supabase agar progress bar sinkron
     if (refresh) await refresh(); 
-    
+
     setEditingContributionId(null);
     setEditingContributionAmount('');
     setEditingContributionDate('');
