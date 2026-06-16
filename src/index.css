@@ -26,26 +26,33 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
 }
 
-/* Sembunyikan scrollbar tapi tetap bisa scroll */
 ::-webkit-scrollbar {
   width: 0px;
   background: transparent;
 }
 
-/* Input date & select di dark mode */
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
-/* Smooth scroll */
 html {
   scroll-behavior: smooth;
 }
 
-/* Fix untuk iOS Safari */
 @supports (-webkit-touch-callout: none) {
   .min-h-screen {
     min-height: 100dvh;
+  }
+}
+
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(4px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
   }
 }

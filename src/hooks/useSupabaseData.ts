@@ -40,7 +40,7 @@ export interface SupabaseRecurring {
 }
 
 // ========== HOOK ==========
-export function useSupabaseData() {
+export function useSupabaseData(isFamilyMode: boolean = false) {
   const { user } = useAuth();
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
@@ -107,20 +107,37 @@ export function useSupabaseData() {
   }
 }, [user]);
 
-  // ========== FETCH DATA (FILTER BY ACTIVE BOOK) ==========
-  const fetchData = useCallback(async () => {
-  if (!user || !activeBook) {
-    setLoading(false); // ✅ PENTING: set false kalau tidak ada data
+  // ========== FETCH DATA (FILTER BY ACTIVE BOOK / FAMILY MODE) ==========
+const fetchData = useCallback(async () => {
+  if (!user) {
+    setLoading(false);
     return;
   }
-  
+
+  // Jika bukan mode keluarga DAN tidak ada activeBook, jangan fetch
+  if (!isFamilyMode && !activeBook) {
+    setLoading(false);
+    return;
+  }
+
   setLoading(true);
   try {
+    // Bangun query dasar (tanpa filter book_id dulu)
+    let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false });
+    let bQuery = supabase.from('budgets').select('*').eq('user_id', user.id);
+    let gQuery = supabase.from('financial_goals').select('*').eq('user_id', user.id);
+    let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id);
+
+    // Jika BUKAN mode keluarga, baru filter berdasarkan activeBook
+    if (!isFamilyMode && activeBook) {
+      tQuery = tQuery.eq('book_id', activeBook.id);
+      bQuery = bQuery.eq('book_id', activeBook.id);
+      gQuery = gQuery.eq('book_id', activeBook.id);
+      rQuery = rQuery.eq('book_id', activeBook.id);
+    }
+
     const [tRes, bRes, gRes, rRes] = await Promise.all([
-      supabase.from('transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id).order('date', { ascending: false }),
-      supabase.from('budgets').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
-      supabase.from('financial_goals').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
-      supabase.from('recurring_transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id),
+      tQuery, bQuery, gQuery, rQuery
     ]);
 
     if (tRes.error) console.error('❌ Transactions error:', tRes.error);
@@ -133,20 +150,23 @@ export function useSupabaseData() {
     if (gRes.data) setGoals(gRes.data);
     if (rRes.data) setRecurring(rRes.data);
 
-    await migrateLocalStorage(user.id, activeBook);
+    // Migrasi lokal storage hanya jika di mode normal (bukan family mode)
+    if (!isFamilyMode && activeBook) {
+      await migrateLocalStorage(user.id, activeBook);
+    }
   } catch (err) {
     console.error('❌ Fetch data exception:', err);
     toast.error('Gagal memuat data');
   } finally {
     setLoading(false); // ✅ Selalu dipanggil
   }
-}, [user, activeBook]);
+}, [user, activeBook, isFamilyMode]); // ✅ Pastikan isFamilyMode ada di dependency array
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
 useEffect(() => { 
   fetchData(); 
   fetchGoalContributions(); // ✅ TAMBAHKAN BARIS INI
-}, [fetchData]); 
+}, [fetchData, isFamilyMode]); 
 
   // ========== MIGRASI LOCALSTORAGE ==========
   const migrateLocalStorage = async (userId: string, book: Book) => {
@@ -326,13 +346,17 @@ useEffect(() => {
 const [goalContributions, setGoalContributions] = useState<any[]>([]);
 
 const fetchGoalContributions = async () => {
-  if (!user || !activeBook) return;
-  const { data, error } = await supabase
-    .from('goal_contributions')
-    .select('*')
-    .eq('book_id', activeBook.id)
-    .order('date', { ascending: false });
+  if (!user) return;
+  if (!isFamilyMode && !activeBook) return;
+
+  let query = supabase.from('goal_contributions').select('*').eq('user_id', user.id).order('date', { ascending: false });
   
+  // Jika BUKAN mode keluarga, filter berdasarkan activeBook
+  if (!isFamilyMode && activeBook) {
+    query = query.eq('book_id', activeBook.id);
+  }
+
+  const { data, error } = await query;
   if (!error && data) setGoalContributions(data);
 };
 

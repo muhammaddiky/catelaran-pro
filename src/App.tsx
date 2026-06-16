@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus, Trash2, Edit2, TrendingUp, Calendar, BarChart3,
   Home, Cloud, CheckCircle, DollarSign, Zap, Lightbulb, AlertTriangle,
@@ -31,6 +31,7 @@ interface Transaction {
   syncedToSheets?: boolean;
   createdAt: string;
   recurringId?: string;
+  book_id?: string;
 }
 
 interface CategoryConfig {
@@ -144,8 +145,11 @@ const APPS_SCRIPT_CODE = `function doPost(e) { try { const sheet = SpreadsheetAp
 export default function CatanKeuangan() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
   const [showSplash, setShowSplash] = useState(true);
-  const [showIncome, setShowIncome] = useState(true);
-  const [showSavings, setShowSavings] = useState(true);
+  const [showIncome, setShowIncome] = useState(false);
+  const [showSavings, setShowSavings] = useState(false);
+  const [isFamilyMode, setIsFamilyMode] = useState(false);
+  // ✅ TAMBAHKAN INI: State untuk filter buku (Default: Semua buku terpilih)
+const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
   // ========== SUPABASE DATA ==========
 const {
 books, activeBook, transactions: rawTransactions, budgets: rawBudgets,
@@ -157,12 +161,13 @@ addGoal, updateGoal, deleteGoal,
 addRecurring, updateRecurring, deleteRecurring,
 goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, 
 refresh// ✅ TAMBAHKAN BARIS INI
-} = useSupabaseData();
+} = useSupabaseData(isFamilyMode);
 
 // Map Supabase data → App types
 const transactions: Transaction[] = rawTransactions.map(t => ({
   id: t.id, date: t.date, type: t.type, category: t.category,
   description: t.description, amount: t.amount, notes: t.notes || undefined, createdAt: t.created_at,
+  book_id: t.book_id, // ✅ TAMBAHKAN BARIS INI
 }));
 
 const budgets: Budget[] = rawBudgets.map(b => ({
@@ -253,7 +258,8 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
     nextDate: format(new Date(), 'yyyy-MM-dd'), reminderDays: 3,
   });
   const [showRecurringForm, setShowRecurringForm] = useState(false);
-
+// ✅ TARUH DI SINI: Ref untuk mencegah notifikasi budget spam & error
+const notifiedBudgetsRef = useRef<Set<string>>(new Set());
   // ========== THEME ==========
   useEffect(() => {
     if (theme === 'dark') document.documentElement.classList.add('dark');
@@ -298,34 +304,36 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
     }
   }, []);
 
-  // ========== BUDGET ALERTS ==========
-  useEffect(() => {
-    if (budgets.length === 0) return;
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    const spending: Record<string, number> = {};
-    transactions.forEach(t => {
-      const d = new Date(t.date);
-      if (t.type === 'expense' && d >= monthStart && d <= monthEnd) {
-        spending[t.category] = (spending[t.category] || 0) + t.amount;
-      }
-    });
+  /// ========== BUDGET ALERTS ==========
+useEffect(() => {
+  if (budgets.length === 0) return;
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  const spending: Record<string, number> = {};
+  
+  transactions.forEach(t => {
+    const d = new Date(t.date);
+    if (t.type === 'expense' && d >= monthStart && d <= monthEnd) {
+      spending[t.category] = (spending[t.category] || 0) + t.amount;
+    }
+  });
+  
+  budgets.forEach(b => {
+    const spent = spending[b.category] || 0;
+    const pct = (spent / b.limit) * 100;
+    const catName = expenseCategories[b.category]?.name || b.category;
 
-    budgets.forEach(b => {
-      const spent = spending[b.category] || 0;
-      const pct = (spent / b.limit) * 100;
-      const catName = expenseCategories[b.category]?.name || b.category;
-
-      if (pct >= 100 && !b.notified?.threshold100) {
-        notify.budget(catName, pct);
-        setBudgets(prev => prev.map(x => x.id === b.id ? { ...x, notified: { ...x.notified, threshold100: true } } : x));
-      } else if (pct >= 80 && pct < 100 && !b.notified?.threshold80) {
-        notify.budget(catName, pct);
-        setBudgets(prev => prev.map(x => x.id === b.id ? { ...x, notified: { ...x.notified, threshold80: true } } : x));
-      }
-    });
-  }, [transactions, budgets]);
+    // ✅ Gunakan Ref untuk tracking, bukan setBudgets yang error
+    if (pct >= 100 && !notifiedBudgetsRef.current.has(`${b.id}-100`)) {
+      notify.budget(catName, pct);
+      notifiedBudgetsRef.current.add(`${b.id}-100`);
+    } else if (pct >= 80 && pct < 100 && !notifiedBudgetsRef.current.has(`${b.id}-80`)) {
+      notify.budget(catName, pct);
+      notifiedBudgetsRef.current.add(`${b.id}-80`);
+    }
+  });
+}, [transactions, budgets]);
 
   // ========== COMPUTED ==========
   const monthlyIncome = useMemo(() => {
@@ -459,51 +467,65 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
   };
 
   const filteredTransactions = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    let startDate: Date | null = null;
-    let endDate: Date | null = null;
-    switch (periodFilter) {
-      case 'today':
-        startDate = today;
-        endDate = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
-        break;
-      case 'week':
-        const dayOfWeek = today.getDay();
-        const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        startDate = new Date(today);
-        startDate.setDate(today.getDate() - diffToMonday);
-        endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + 6);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'month':
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-        break;
-      case 'year':
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-        break;
-      case 'custom':
-        if (customStartDate) startDate = new Date(customStartDate);
-        if (customEndDate) endDate = new Date(customEndDate + 'T23:59:59.999');
-        break;
-      case 'all':
-      default:
-        startDate = null;
-        endDate = null;
-    }
-    return transactions
-      .filter(t => {
-        const d = new Date(t.date);
-        if (startDate && d < startDate) return false;
-        if (endDate && d > endDate) return false;
-        return true;
-      })
-      .filter(t => !filterCategory || t.category === filterCategory)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [transactions, periodFilter, customStartDate, customEndDate, filterCategory]);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let startDate: Date | null = null;
+  let endDate: Date | null = null;
+  
+  switch (periodFilter) {
+    case 'today':
+      startDate = today;
+      endDate = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
+      break;
+    case 'week':
+      const dayOfWeek = today.getDay();
+      const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startDate = new Date(today);
+      startDate.setDate(today.getDate() - diffToMonday);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      break;
+    case 'year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      break;
+    case 'custom':
+      if (customStartDate) startDate = new Date(customStartDate);
+      if (customEndDate) endDate = new Date(customEndDate + 'T23:59:59.999');
+      break;
+    case 'all':
+    default:
+      startDate = null;
+      endDate = null;
+  }
+  
+  return transactions
+    .filter(t => {
+      const d = new Date(t.date);
+      if (startDate && d < startDate) return false;
+      if (endDate && d > endDate) return false;
+      return true;
+    })
+    
+        // ✅ FILTER BUKU (DIPERBAIKI)
+    .filter(t => {
+      if (!isFamilyMode) return true; 
+      // Jika array kosong ATAU panjangnya sama dengan total buku, tampilkan semua
+      if (selectedBookIds.length === 0 || selectedBookIds.length === books.length) return true;
+      return selectedBookIds.includes(t.book_id);
+    })
+    
+    .filter(t => !filterCategory || t.category === filterCategory)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books]); 
+// ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
+  
 
   const getCategories = () => transactionType === 'income' ? incomeCategories : expenseCategories;
   const currentCategory = getCategories()[formData.category];
@@ -891,44 +913,40 @@ if (showSplash) {
   return <SplashScreen onFinish={() => setShowSplash(false)} isDark={isDark} />;
 }
   // ✅ AUTH GUARD & SPLASH SCREEN (DIPERBAIKI)
-// ✅ SKELETON LOADING (PENGGANTI SPLASH SCREEN - TERASA INSTAN!)
+// ✅ SKELETON LOADING RINGAN UNTUK HP (NO ANIMATE-PULSE)
 const isLoading = authLoading || dataLoading;
-  if (isLoading) {
+if (isLoading) {
   return (
     <div className={`min-h-[100dvh] transition-colors ${isDark ? 'bg-slate-900' : 'bg-slate-50'} p-4 pb-28`}>
-      {/* HEADER SKELETON */}
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-6 max-w-4xl mx-auto">
-        {/* Ganti nama aplikasi di sini jika tetap ingin menampilkan teks */}
         <div className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-full animate-pulse ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
-          <h1 className={`text-lg font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-            Catelaran-Pro{/* 👈 UBAH NAMA APLIKASI DI SINI */}
-          </h1>
+          <div className={`w-8 h-8 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.1s_forwards]`} />
+          <div className={`h-5 w-28 rounded-md ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.15s_forwards]`} />
         </div>
         <div className="flex gap-2">
-          <div className={`w-9 h-9 rounded-full animate-pulse ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
-          <div className={`w-9 h-9 rounded-full animate-pulse ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
+          <div className={`w-9 h-9 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.2s_forwards]`} />
+          <div className={`w-9 h-9 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.25s_forwards]`} />
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto space-y-4">
-        {/* GREETING BANNER SKELETON */}
-        <div className={`h-20 w-full rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
+        {/* GREETING BANNER */}
+        <div className={`h-20 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.3s_forwards]`} />
 
-        {/* GRID KARTU SKELETON */}
+        {/* GRID KARTU */}
         <div className="grid grid-cols-2 gap-3">
-          <div className={`h-24 rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-          <div className={`h-24 rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-          <div className={`h-24 rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-          <div className={`h-24 rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
+          {[0.35, 0.4, 0.45, 0.5].map((delay, i) => (
+            <div key={i} className={`h-24 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0`} style={{ animation: `fadeIn 0.4s ease-out ${delay}s forwards` }} />
+          ))}
         </div>
 
-        {/* CHART SKELETON */}
-        <div className={`h-64 w-full rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-        
-        {/* LIST SKELETON */}
-        <div className={`h-16 w-full rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
-        <div className={`h-16 w-full rounded-2xl animate-pulse ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}></div>
+        {/* CHART PLACEHOLDER */}
+        <div className={`h-64 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.55s_forwards]`} />
+
+        {/* LIST PLACEHOLDER */}
+        <div className={`h-16 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.6s_forwards]`} />
+        <div className={`h-16 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.65s_forwards]`} />
       </div>
     </div>
   );
@@ -950,16 +968,34 @@ if (!user) return <AuthScreen />;
     {/* Row 1: Book Switcher + User Info */}
     <div className="flex items-center justify-between mb-2">
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        {/* Book Switcher Button */}
-        <button
-          onClick={() => setShowBookManager(!showBookManager)}
-          className="flex items-center gap-1.5 bg-gradient-to-br from-blue-500 to-purple-500 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-md active:scale-95 transition-transform flex-shrink-0"
-        >
-          <span className="text-base">{activeBook?.icon || '📘'}</span>
-          <span className="truncate max-w-[120px]">{activeBook?.name || 'Pilih Buku'}</span>
-          <ChevronRight className={`w-3 h-3 transition-transform ${showBookManager ? 'rotate-90' : ''}`} />
-        </button>
-      </div>
+  {/* Book Switcher Button */}
+  {!isFamilyMode && (
+    <button
+      onClick={() => setShowBookManager(!showBookManager)}
+      className="flex items-center gap-1.5 bg-gradient-to-br from-blue-500 to-purple-500 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-md active:scale-95 transition-transform flex-shrink-0"
+    >
+      <span className="text-base">{activeBook?.icon || '📘'}</span>
+      <span className="truncate max-w-[120px]">{activeBook?.name || 'Pilih Buku'}</span>
+      <ChevronRight className={`w-3 h-3 transition-transform ${showBookManager ? 'rotate-90' : ''}`} />
+    </button>
+  )}
+
+  {/* ✅ MODE KELUARGA TOGGLE */}
+  <button
+    onClick={() => {
+      setIsFamilyMode(!isFamilyMode);
+      if (!isFamilyMode) setShowBookManager(false); // Tutup book manager saat masuk mode keluarga
+    }}
+    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-md active:scale-95 transition-all flex-shrink-0 ${
+      isFamilyMode
+        ? 'bg-gradient-to-br from-pink-500 to-rose-500 text-white ring-2 ring-pink-300 dark:ring-pink-700'
+        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+    }`}
+  >
+    <span className="text-base">👨‍👩‍👧</span>
+    <span className="hidden sm:inline">{isFamilyMode ? 'Mode Keluarga' : 'Keluarga'}</span>
+  </button>
+</div>
       
       {/* User Info + Actions */}
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -1471,6 +1507,47 @@ if (!user) return <AuthScreen />;
                   <option key={k} value={k}>{c.icon} {c.name}</option>
                 ))}
               </select>
+              
+              {/* ✅ FILTER BUKU (HANYA MUNCUL SAAT MODE KELUARGA) */}
+{isFamilyMode && books.length > 0 && (
+  <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+    <button
+      onClick={() => setSelectedBookIds(books.map(b => b.id))}
+      className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+  selectedBookIds.length === 0 || selectedBookIds.length === books.length
+    ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30'
+    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+}`}
+    >
+      📚 Semua Buku
+    </button>
+    {books.map(book => {
+      const isSelected = selectedBookIds.includes(book.id);
+      return (
+        <button
+          key={book.id}
+          onClick={() => {
+            if (isSelected) {
+              const newIds = selectedBookIds.filter(id => id !== book.id);
+              setSelectedBookIds(newIds.length > 0 ? newIds : books.map(b => b.id));
+            } else {
+              setSelectedBookIds([...selectedBookIds, book.id]);
+            }
+          }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+            isSelected
+              ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <span>{book.icon}</span>
+          <span>{book.name}</span>
+        </button>
+      );
+    })}
+  </div>
+)}
+
               {filteredTransactions.length > 0 && (
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-3 shadow-md">
@@ -1509,6 +1586,14 @@ if (!user) return <AuthScreen />;
                             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
                               {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
                             </p>
+                            
+                            {/* ✅ BADGE SUMBER BUKU (HANYA MUNCUL SAAT MODE KELUARGA AKTIF) */}
+                            {isFamilyMode && t.book_id && (
+                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-[10px] font-bold text-blue-700 dark:text-blue-300 w-fit border border-blue-200 dark:border-blue-800">
+                                {books.find(b => b.id === t.book_id)?.icon || '📘'} 
+                                {books.find(b => b.id === t.book_id)?.name || 'Buku'}
+                              </span>
+                            )}
                           </div>
                           <div className="text-right flex-shrink-0">
                             <p className={`text-sm font-bold ${t.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
