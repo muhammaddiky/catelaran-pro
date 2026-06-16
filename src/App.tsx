@@ -99,6 +99,7 @@ const expenseCategories: Record<string, CategoryConfig> = {
   investasi_exp: { id: 'investasi_exp', name: 'Investasi', shortName: 'Inv', icon: '💰', color: 'text-green-600', bgColor: 'bg-green-100', type: 'expense' },
   hiburan: { id: 'hiburan', name: 'Hiburan', shortName: 'Hbr', icon: '🎬', color: 'text-pink-600', bgColor: 'bg-pink-100', type: 'expense' },
   belanja: { id: 'belanja', name: 'Belanja', shortName: 'Blnj', icon: '🛍️', color: 'text-rose-600', bgColor: 'bg-rose-100', type: 'expense' },
+  belanja_online: { id: 'belanja_online', name: 'Belanja Online', shortName: 'OlShop', icon: '📦', color: 'text-orange-600', bgColor: 'bg-orange-100', type: 'expense' },
   rekreasi: { id: 'rekreasi', name: 'Rekreasi', shortName: 'Rek', icon: '✈️', color: 'text-cyan-600', bgColor: 'bg-cyan-100', type: 'expense' },
   sosial: { id: 'sosial', name: 'Sosial', shortName: 'Sos', icon: '🤝', color: 'text-purple-600', bgColor: 'bg-purple-100', type: 'expense' },
   anak: { id: 'anak', name: 'Anak', shortName: 'Anak', icon: '👶', color: 'text-pink-500', bgColor: 'bg-pink-50', type: 'expense' },
@@ -106,6 +107,33 @@ const expenseCategories: Record<string, CategoryConfig> = {
 };
 
 const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+// ✅ CONTOH DESKRIPSI PER KATEGORI (untuk placeholder)
+const categoryExamples: Record<string, string[]> = {
+  // === PEMASUKAN ===
+  gaji: ['Gaji bulanan', 'Bonus akhir tahun', 'Tunjangan lain-lain'],
+  usaha: ['Penjualan hari ini', 'Profit bisnis online', 'Order customer'],
+  investasi: ['Dividen saham', 'Bunga deposito', 'Profit crypto'],
+  lainnya: ['Hadiah ulang tahun', 'Angpao Lebaran', 'Cashback'],
+  
+  // === PENGELUARAN ===
+  rumah_tangga: ['Beli sabun & deterjen', 'Kantong sampah', 'Gas elpiji'],
+  utilitas: ['Bayar listrik PLN', 'Bayar air PDAM', 'Internet & WiFi'],
+  makanan: ['Makan siang', 'Beli sayur pasar', 'Minuman & snack'],
+  transportasi: ['Isi bensin motor', 'Ojek online', 'Tol & parkir'],
+  pendidikan: ['Beli buku kuliah', 'Kursus online', 'SPP anak'],
+  kesehatan: ['Beli obat apotek', 'Konsultasi dokter', 'Vitamin & suplemen'],
+  cicilan: ['Bayar Paylater', 'Cicilan motor', 'Cicilan rumah KPR'],
+  asuransi: ['Premi asuransi jiwa', 'BPJS Kesehatan', 'Asuransi mobil'],
+  investasi_exp: ['Beli saham BBCA', 'Top up reksadana', 'Nabung emas'],
+  hiburan: ['Nonton bioskop', 'Netflix/Spotify', 'Game & langganan'],
+  belanja: ['Baju baru', 'Sepatu kerja', 'Tas'],
+  belanja_online: ['Checkout Shopee', 'Tokped', 'TikTok Shop'],
+  rekreasi: ['Tiket wisata', 'Staycation', 'Jalan-jalan keluarga'],
+  sosial: ['Sedekah', 'Kondangan pernikahan', 'Sumbangan'],
+  anak: ['Susu & popok', 'Mainan anak', 'Uang saku sekolah'],
+  cadangan: ['Dana darurat', 'Tabungan masa depan', 'Alokasi risiko'],
+};
 
 // ==================== UTILS ====================
 const formatCurrency = (amount: number): string => {
@@ -529,7 +557,8 @@ useEffect(() => {
 
   const getCategories = () => transactionType === 'income' ? incomeCategories : expenseCategories;
   const currentCategory = getCategories()[formData.category];
-
+// ✅ JOIN SEMUA CONTOH DESKRIPSI DENGAN KOMA
+const currentExamples = categoryExamples[formData.category]?.join(', ') || '';
   const handleAddBudget = async () => {
   const limit = parseNominal(budgetForm.limit);
   if (limit <= 0) { notify.error('Nominal tidak valid'); return; }
@@ -1431,7 +1460,7 @@ if (!user) return <AuthScreen />;
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Deskripsi</label>
                     <input type="text" value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
-                      placeholder={`Contoh: ${currentCategory?.name || ''}`}
+                      placeholder={`Contoh: ${currentExamples || currentCategory?.name || ''}`}
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <div>
