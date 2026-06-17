@@ -730,6 +730,18 @@ const handleUpdateGoal = async () => {
   }
 };
 
+// Helper untuk mencari transaksi yang terhubung dengan riwayat tabungan
+const findLinkedTransaction = (contributionId: string, amount: number, dateStr: string) => {
+    return transactions.find(t => 
+        t.type === 'expense' && 
+        t.category === 'investasi_exp' &&
+        (
+            (t.notes && t.notes.includes(`[ref:${contributionId}]`)) ||
+            (t.amount === amount && t.date === dateStr.substring(0, 10)) // Fallback untuk data lama
+        )
+    );
+};
+
 const handleAddFundsToGoal = async () => {
   if (!fundingGoalId || !fundingAmount) {
     notify.error('Nominal wajib diisi');
@@ -770,7 +782,7 @@ const handleAddFundsToGoal = async () => {
         category: 'investasi_exp',
         description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
         amount,
-        notes: `Auto dari Goal "${goal?.name}"`,
+        notes: `Auto dari Goal "${goal?.name}" [ref:${result.id}]`, // ✅ Sisipkan ID Kontribusi sebagai referensi
       });
       notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran 🎉`);
     } else {
@@ -788,33 +800,53 @@ const handleAddFundsToGoal = async () => {
 };
 
 const handleUpdateContribution = async () => {
-  if (!editingContributionId || !editingContributionAmount) {
-    notify.error('Nominal wajib diisi');
-    return;
-  }
+    if (!editingContributionId || !editingContributionAmount) {
+        notify.error('Nominal wajib diisi');
+        return;
+    }
+    const amount = parseNominal(editingContributionAmount);
+    if (amount <= 0) {
+        notify.error('Nominal tidak valid');
+        return;
+    }
+    
+    // Ambil data lama sebelum diupdate untuk keperluan pencarian transaksi
+    const oldContribution = goalContributions.find(c => c.id === editingContributionId);
+    
+    // Gabungkan tanggal + waktu menjadi format ISOString yang benar
+    const dateTimeStr = new Date(`${editingContributionDate}T${editingContributionTime}:00`).toISOString();
+    const result = await updateGoalContribution(editingContributionId, {
+        amount,
+        date: dateTimeStr,
+        note: editingContributionNote.trim() || undefined,
+    });
+    if (result) {
+        notify.success('Riwayat berhasil diperbarui ✅');
+        
+        // ✅ SINKRONISASI: Update transaksi terkait jika ada
+        const goal = goals.find(g => g.id === result.goal_id);
+        if (goal && oldContribution) {
+            const linkedTx = findLinkedTransaction(
+                editingContributionId, 
+                oldContribution.amount, 
+                oldContribution.date
+            );
+            
+            if (linkedTx) {
+                await updateTransaction(linkedTx.id, {
+                    amount,
+                    date: editingContributionDate,
+                    description: `Tabungan Goal: ${goal.name}${editingContributionNote ? ` - ${editingContributionNote}` : ''}`,
+                    notes: `Auto dari Goal "${goal.name}" [ref:${editingContributionId}]`,
+                });
+            }
+        }
+        
+        // ✅ PENTING: Refresh semua data dari Supabase agar progress bar sinkron
+        if (refresh) await refresh(); 
 
-  const amount = parseNominal(editingContributionAmount);
-  if (amount <= 0) {
-    notify.error('Nominal tidak valid');
-    return;
-  }
+        setEditingContributionId(null);
 
-  // Gabungkan tanggal + waktu menjadi format ISOString yang benar
-  const dateTimeStr = new Date(`${editingContributionDate}T${editingContributionTime}:00`).toISOString();
-
-  const result = await updateGoalContribution(editingContributionId, {
-    amount,
-    date: dateTimeStr,
-    note: editingContributionNote.trim() || undefined,
-  });
-
-  if (result) {
-    notify.success('Riwayat berhasil diperbarui ✅');
-
-    // ✅ PENTING: Refresh semua data dari Supabase agar progress bar sinkron
-    if (refresh) await refresh(); 
-
-    setEditingContributionId(null);
     setEditingContributionAmount('');
     setEditingContributionDate('');
     setEditingContributionTime('');
@@ -2829,15 +2861,23 @@ if (!user) return <AuthScreen />;
 
                   {/* TOMBOL HAPUS */}
                   <button
-                    onClick={async () => {
-                      if (window.confirm('Hapus riwayat ini? Dana akan dikurangi dari Goal.')) {
-                        await deleteGoalContribution(c.id);
-                      }
-                    }}
-                    className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                  </button>
+                onClick={async () => {
+                  if (window.confirm('Hapus riwayat ini? Dana akan dikurangi dari Goal dan transaksi terkait (jika ada) juga akan dihapus.')) {
+                    const goal = goals.find(g => g.id === viewingGoalHistory);
+                    if (goal) {
+                        // Cari dan hapus transaksi yang terhubung
+                        const linkedTx = findLinkedTransaction(c.id, c.amount, c.date);
+                        if (linkedTx) {
+                            await deleteTransaction(linkedTx.id);
+                        }
+                    }
+                    await deleteGoalContribution(c.id);
+                  }
+                 }}
+                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+               >
+                 <Trash2 className="w-3.5 h-3.5 text-red-500" />
+               </button>
                 </div>
                   </div>
                 ))}
