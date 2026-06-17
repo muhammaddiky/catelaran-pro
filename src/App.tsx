@@ -177,7 +177,7 @@ const APPS_SCRIPT_CODE = `function doPost(e) { try { const sheet = SpreadsheetAp
 // ==================== MAIN COMPONENT ====================
 export default function CatanKeuangan() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
-  const [showSplash, setShowSplash] = useState(true);
+  const [isReady, setIsReady] = useState(false);
   const [showIncome, setShowIncome] = useState(false);
   const [showSavings, setShowSavings] = useState(false);
   const [isFamilyMode, setIsFamilyMode] = useState(false);
@@ -1144,11 +1144,17 @@ const handleUpdateRecurring = async () => {
     }
     return null;
   };
-if (showSplash) {
-  return <SplashScreen onFinish={() => setShowSplash(false)} isDark={isDark} />;
-}
-  // ✅ AUTH GUARD & SPLASH SCREEN (DIPERBAIKI)
-// ✅ SKELETON LOADING RINGAN UNTUK HP (NO ANIMATE-PULSE)
+
+  // ✅ TUNGGU AUTH DAN DATA SELESAI DIMUAT
+useEffect(() => {
+  if (!authLoading && !dataLoading) {
+    // Beri jeda sedikit agar transisi mulus dan browser selesai render layout
+    const timer = setTimeout(() => setIsReady(true), 500);
+    return () => clearTimeout(timer);
+  }
+}, [authLoading, dataLoading]);
+
+  // ✅ SKELETON LOADING RINGAN UNTUK HP (NO ANIMATE-PULSE)
 const isLoading = authLoading || dataLoading;
 if (isLoading) {
   return (

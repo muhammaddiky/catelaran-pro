@@ -150,10 +150,13 @@ const fetchData = useCallback(async () => {
     if (gRes.data) setGoals(gRes.data);
     if (rRes.data) setRecurring(rRes.data);
 
-    // Migrasi lokal storage hanya jika di mode normal (bukan family mode)
-    if (!isFamilyMode && activeBook) {
-      await migrateLocalStorage(user.id, activeBook);
-    }
+    // Safety check: Jika data kosong padahal seharusnya ada, coba fetch ulang sekali
+  if (!isFamilyMode && activeBook && tRes.data?.length === 0) {
+    console.warn('⚠️ First load empty, retrying...');
+    await new Promise(r => setTimeout(r, 1000)); // Delay 1 detik
+    const retryRes = await supabase.from('transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id);
+    if (retryRes.data) setTransactions(retryRes.data);
+  }
   } catch (err) {
     console.error('❌ Fetch data exception:', err);
     toast.error('Gagal memuat data');

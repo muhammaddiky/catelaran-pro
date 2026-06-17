@@ -11,3 +11,16 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </AuthProvider>
   </React.StrictMode>,
 )
+
+// Di main.tsx, SEBELUM ReactDOM.createRoot
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    const swUrl = `/service-worker.js`; // Sesuaikan nama file SW Anda
+    const registration = await navigator.serviceWorker.getRegistration();
+    
+    // Force check update setiap kali load
+    if (registration) {
+      await registration.update();
+    }
+  });
+}
