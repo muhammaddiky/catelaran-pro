@@ -451,22 +451,37 @@ const updateGoalContribution = async (id: string, updates: { amount?: number; da
   return data;
 };
 
+// ========== GOAL CONTRIBUTIONS CRUD ==========
 const deleteGoalContribution = async (id: string) => {
   const contribution = goalContributions.find(c => c.id === id);
   if (!contribution) return false;
-  
+
+  // ✅ LANGKAH 1: Cari transaksi yang terhubung dengan kontribusi ini
+  // Mencari transaksi expense kategori investasi_exp yang memiliki [ref:id_kontribusi] di notes
+  const linkedTransaction = transactions.find(t => 
+    t.type === 'expense' && 
+    t.category === 'investasi_exp' && 
+    t.notes?.includes(`[ref:${id}]`)
+  );
+
+  // ✅ LANGKAH 2: Hapus transaksi terkait jika ditemukan
+  if (linkedTransaction) {
+    await deleteTransaction(linkedTransaction.id);
+  }
+
+  // ✅ LANGKAH 3: Baru hapus riwayat kontribusi dari database
   const { error } = await supabase
     .from('goal_contributions')
     .delete()
     .eq('id', id);
-  
+
   if (error) {
     toast.error('Gagal menghapus riwayat');
     return false;
   }
-  
+
   setGoalContributions(prev => prev.filter(c => c.id !== id));
-  
+
   // Kurangi progress goal saat dihapus
   const targetGoal = goals.find(g => g.id === contribution.goal_id);
   if (targetGoal) {
@@ -474,10 +489,9 @@ const deleteGoalContribution = async (id: string) => {
       current_amount: Math.max(0, targetGoal.current_amount - contribution.amount)
     });
   }
-  
+
   return true;
 };
-
 
 
   // ========== RECURRING CRUD ==========

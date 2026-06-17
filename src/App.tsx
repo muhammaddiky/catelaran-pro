@@ -181,6 +181,86 @@ export default function CatanKeuangan() {
   const [showIncome, setShowIncome] = useState(false);
   const [showSavings, setShowSavings] = useState(false);
   const [isFamilyMode, setIsFamilyMode] = useState(false);
+  // ✅ STATE BARU: Rincian Item Transaksi
+const [transactionItems, setTransactionItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
+const [showItemDetails, setShowItemDetails] = useState(false);
+
+// ✅ HELPER: Parse items dari notes (ULTIMATE SAFE VERSION)
+const parseItemsFromNotes = (notes?: string | null): Array<{ name: string; qty: number; price: number }> => {
+  if (!notes) return [];
+  try {
+    // Cari pola [items: ... ] dengan regex yang lebih toleran
+    const match = notes.match(/\[items:([\s\S]*?)\]/);
+    if (match && match[1]) {
+      let jsonStr = match[1].trim();
+      
+      // 🛠️ STEP 1: Coba parse normal
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e1) {
+        // 🛠️ STEP 2: Recovery Heuristics untuk data rusak/terpotong
+        // 1. Ganti single quote dengan double quote
+        jsonStr = jsonStr.replace(/'/g, '"');
+        
+        // 2. Hapus koma trailing sebelum ]
+        jsonStr = jsonStr.replace(/,\s*\]/g, ']');
+        
+        // 3. PERBAIKAN KRUSIAL: Jika JSON terpotong (tidak ada ] di akhir), tambahkan ]
+        if (!jsonStr.endsWith(']')) {
+          const fixedJson = jsonStr + ']';
+          try {
+            const recovered = JSON.parse(fixedJson);
+            if (Array.isArray(recovered)) {
+              return recovered;
+            }
+          } catch (e2) {
+            // Jika masih gagal, abaikan saja agar app tidak crash
+            console.warn('️ Items JSON unrecoverable even after fix');
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // Silent fail agar UI tidak blank
+  }
+  return [];
+};
+
+// ✅ HELPER: Serialize items ke notes (CLEAN BEFORE SAVE)
+const serializeItemsToNotes = (
+  items: Array<{ name: string; qty: number; price: number }>, 
+  originalNotes?: string | null
+): string | null => {
+  //  LANGKAH PENTING: Hapus SEMUA tag items lama (valid ATAU rusak) SEBELUM menambah yang baru
+  // Regex ini dirancang khusus untuk menangkap tag yang terpotong atau formatnya salah
+  let base = (originalNotes || '')
+    .replace(/\[items:[\s\S]*?\]/g, '')   // Hapus tag valid
+    .replace(/\[items:[\s\S]*$/g, '')     // Hapus tag rusak/terpotong di akhir
+    .replace(/\]\s*$/, '')                // Hapus kurung siku tutup yatim
+    .replace(/^\]\s*/, '')                // Hapus kurung siku buka yatim
+    .trim();
+  
+  if (items.length > 0) {
+    try {
+      const itemsJson = JSON.stringify(items);
+      // Validasi ganda sebelum disimpan
+      JSON.parse(itemsJson); 
+      base = `${base} [items:${itemsJson}]`.trim();
+    } catch (e) {
+      console.error('❌ Gagal serialize items:', e);
+      return base || null;
+    }
+  }
+  
+  return base || null;
+};
+
+// ✅ HELPER: Hitung total items (memoized)
+const itemsTotal = useMemo(() => {
+  return transactionItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
+}, [transactionItems]);
+
   // ✅ TAMBAHKAN INI: State untuk filter buku (Default: Semua buku terpilih)
 const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
   // ========== SUPABASE DATA ==========
@@ -529,23 +609,30 @@ const paymentBarData = useMemo(() => {
 
   const handleAddTransaction = async () => {
   if (!formData.description || !formData.amount) { notify.error('Deskripsi & nominal wajib diisi!'); return; }
-  const payload = {
-    date: formData.date, type: formData.type, category: formData.category,
-    description: formData.description, amount: parseInt(formData.amount), notes: formData.notes || null,
-    payment_method: formData.payment_method,
-  };
-  if (editingId) {
-    const result = await updateTransaction(editingId, payload);
-    if (result) { setEditingId(null); notify.success('Transaksi diupdate! ☁️'); }
-  } else {
-    const result = await addTransaction(payload);
-    if (result) {
-      notify.success('Transaksi ditambahkan! ☁️');
-      if (scriptUrl) syncToSheets({ ...result, syncedToSheets: false } as any);
+      // ✅ Gabungkan items ke notes sebagai JSON
+    const finalNotes = serializeItemsToNotes(transactionItems, formData.notes);
+    
+    const payload = {
+      date: formData.date, type: formData.type, category: formData.category,
+      description: formData.description, amount: parseInt(formData.amount), 
+      notes: finalNotes,
+      payment_method: formData.payment_method,
+    };
+    if (editingId) {
+      const result = await updateTransaction(editingId, payload);
+      if (result) { setEditingId(null); notify.success('Transaksi diupdate! ☁️'); }
+    } else {
+      const result = await addTransaction(payload);
+      if (result) {
+        notify.success('Transaksi ditambahkan! ☁️');
+        if (scriptUrl) syncToSheets({ ...result, syncedToSheets: false } as any);
+      }
     }
-  }
-  setFormData({ date: new Date().toISOString().split('T')[0], type: 'expense', category: 'makanan', description: '', amount: '', notes: '' });
-  setActiveTab('history');
+    // ✅ Reset termasuk items
+    setFormData({ date: new Date().toISOString().split('T')[0], type: 'expense', category: 'makanan', description: '', amount: '', notes: '', payment_method: 'cash' });
+    setTransactionItems([]);
+    setShowItemDetails(false);
+    setActiveTab('history');
 };
 
   const handleDelete = async (id: string) => {
@@ -556,11 +643,28 @@ const paymentBarData = useMemo(() => {
 };
 
   const handleEdit = (t: Transaction) => {
-    setFormData({ date: t.date, type: t.type, category: t.category, description: t.description, amount: t.amount.toString(), notes: t.notes || '', payment_method: t.payment_method || 'cash' });
-    setEditingId(t.id);
-    setActiveTab('input');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  // ✅ PARSE ITEMS DARI NOTES TRANSAKSI
+  const extractedItems = parseItemsFromNotes(t.notes);
+  
+  setFormData({ 
+    date: t.date, 
+    type: t.type, 
+    category: t.category, 
+    description: t.description, 
+    amount: t.amount.toString(), 
+    // ✅ PENTING: Bersihkan notes dari tag items agar user tidak melihat JSON mentah
+    notes: (t.notes || '').replace(/\[items:[\s\S]*?\]/g, '').trim(), 
+    payment_method: t.payment_method || 'cash' 
+  });
+  
+  // ✅ SET STATE ITEMS & TOGGLE PANEL
+  setTransactionItems(extractedItems);
+  setShowItemDetails(extractedItems.length > 0); // Auto buka panel jika ada items
+  
+  setEditingId(t.id);
+  setActiveTab('input');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
   const filteredTransactions = useMemo(() => {
   const now = new Date();
@@ -775,19 +879,21 @@ const handleAddFundsToGoal = async () => {
     }
 
     // Opsional: Catat sebagai transaksi pengeluaran jika dicentang
-    if (fundingAsExpense) {
-      await addTransaction({
-        date: fundingDate,
-        type: 'expense',
-        category: 'investasi_exp',
-        description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
-        amount,
-        notes: `Auto dari Goal "${goal?.name}" [ref:${result.id}]`, // ✅ Sisipkan ID Kontribusi sebagai referensi
-      });
-      notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran 🎉`);
-    } else {
-      notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goal?.name} 🎉`);
-    }
+if (fundingAsExpense) {
+  const goal = goals.find(g => g.id === fundingGoalId);
+  await addTransaction({
+    date: fundingDate,
+    type: 'expense',
+    category: 'investasi_exp',
+    description: `Tabungan Goal: ${goal?.name || 'Goal'}${fundingNote ? ` - ${fundingNote}` : ''}`,
+    amount,
+    // ✅ PENTING: Sisipkan ID Kontribusi sebagai referensi agar bisa disinkronkan saat hapus/edit
+    notes: `Auto dari Goal "${goal?.name}" [ref:${result.id}]`, 
+  });
+  notify.success(`+${formatCurrency(amount)} ditambahkan & tercatat sebagai pengeluaran `);
+} else {
+  notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goals.find(g => g.id === fundingGoalId)?.name} 🎉`);
+}
 
     // Reset Form
     setFundingGoalId(null);
@@ -1626,11 +1732,87 @@ if (!user) return <AuthScreen />;
                       placeholder={`Contoh: ${currentExamples || currentCategory?.name || ''}`}
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
-                    <input type="text" value={formatNominalDisplay(formData.amount)} onChange={handleNominalChange} placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
-                      className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
-                  </div>
+                                 <div>
+                 <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
+                 <input type="text" value={formatNominalDisplay(formData.amount)} onChange={handleNominalChange} placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
+                  className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
+                 
+                 {/* ✅ TOMBOL TOGGLE RINCIAN ITEM */}
+                 <button
+                   type="button"
+                   onClick={() => setShowItemDetails(!showItemDetails)}
+                   className="mt-2 text-xs font-semibold text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                 >
+                   {showItemDetails ? '▼ Sembunyikan Rincian' : '+ Tambah Rincian Item'}
+                 </button>
+               </div>
+
+               {/* ✅ PANEL RINCIAN ITEM (COLLAPSIBLE) */}
+               {showItemDetails && (
+                 <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 space-y-2 border border-slate-200 dark:border-slate-600">
+                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Rincian Belanja</p>
+                   
+                   {transactionItems.map((item, idx) => (
+                     <div key={idx} className="flex gap-1.5 items-center">
+                       <input
+                         type="text"
+                         value={item.name}
+                         onChange={(e) => {
+                           const newItems = [...transactionItems];
+                           newItems[idx].name = e.target.value;
+                           setTransactionItems(newItems);
+                         }}
+                         placeholder="Nama item"
+                         className="flex-1 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600"
+                       />
+                       <input
+                         type="number"
+                         value={item.qty || ''}
+                         onChange={(e) => {
+                           const newItems = [...transactionItems];
+                           newItems[idx].qty = parseInt(e.target.value) || 0;
+                           setTransactionItems(newItems);
+                         }}
+                         placeholder="Qty"
+                         className="w-14 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-center"
+                       />
+                       <input
+                         type="text"
+                         value={item.price ? formatNominalDisplay(item.price.toString()) : ''}
+                         onChange={(e) => {
+                           const newItems = [...transactionItems];
+                           newItems[idx].price = parseNominal(e.target.value);
+                           setTransactionItems(newItems);
+                         }}
+                         placeholder="Harga"
+                         inputMode="numeric"
+                         className="w-24 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-right"
+                       />
+                       <button
+                         onClick={() => setTransactionItems(transactionItems.filter((_, i) => i !== idx))}
+                         className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg"
+                       >
+                         <X className="w-3 h-3 text-red-500" />
+                       </button>
+                     </div>
+                   ))}
+
+                   <button
+                     type="button"
+                     onClick={() => setTransactionItems([...transactionItems, { name: '', qty: 1, price: 0 }])}
+                     className="w-full py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                   >
+                     + Tambah Item
+                   </button>
+
+                   {itemsTotal > 0 && (
+                     <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-600">
+                       <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Subtotal Rincian:</span>
+                       <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatCurrency(itemsTotal)}</span>
+                     </div>
+                   )}
+                 </div>
+               )}
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan</label>
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
@@ -3258,25 +3440,99 @@ if (!user) return <AuthScreen />;
               {viewingTransaction.type === 'income' ? '+' : '-'} {formatCurrency(viewingTransaction.amount).replace('Rp', 'Rp ')}
             </div>
 
-            {/* Detail Deskripsi & Catatan */}
-            <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Deskripsi</p>
-                <p className="text-sm text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                  {viewingTransaction.description || '-'}
-                </p>
-              </div>
-              
-              {viewingTransaction.notes && (
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Catatan</p>
-                  <p className="text-sm text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700 whitespace-pre-wrap">
-                    {viewingTransaction.notes}
-                  </p>
-                </div>
-              )}
+                     {/* ✅ DETAIL DESKRIPSI & CATATAN (CLEAN VERSION) */}
+          <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
+            
+            {/* 1. DESKRIPSI UTAMA */}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Deskripsi</p>
+              <p className="text-sm text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700 leading-relaxed">
+                {viewingTransaction.description || '-'}
+              </p>
             </div>
 
+            {/* 2. RINCIAN ITEM (Single Source of Truth) */}
+            {(() => {
+              const items = parseItemsFromNotes(viewingTransaction.notes);
+              const hasItemsTag = viewingTransaction.notes?.includes('[items:');
+              
+              // Jika ada tag tapi gagal parse -> Tampilkan Warning
+              if (hasItemsTag && items.length === 0) {
+                return (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex gap-2 items-start">
+                    <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-red-600 dark:text-red-400">Data Rincian Rusak</p>
+                      <p className="text-[10px] text-red-500 dark:text-red-300 mt-0.5">Format JSON tidak valid. Silakan Edit transaksi ini untuk memperbaiki rincian.</p>
+                    </div>
+                  </div>
+                );
+              }
+              
+              // Jika tidak ada items sama sekali -> Jangan render apa-apa
+              if (items.length === 0) return null;
+              
+              const subtotal = items.reduce((s, i) => s + (i.qty * i.price), 0);
+              
+              return (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    📋 Rincian Item <span className="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded-full">{items.length} item</span>
+                  </p>
+                  <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
+                    {items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center px-3 py-2.5 border-b border-slate-100 dark:border-slate-700 last:border-0 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <span className="text-sm text-slate-800 dark:text-slate-200 truncate block font-medium">
+                            {item.name || '(Tanpa nama)'}
+                          </span>
+                          {item.qty > 1 && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {item.qty}x @ {formatCurrency(item.price)}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap tabular-nums">
+                          {formatCurrency(item.qty * item.price)}
+                        </span>
+                      </div>
+                    ))}
+                    
+                    {/* Footer Subtotal */}
+                    <div className="flex justify-between items-center px-3 py-2.5 bg-blue-50/50 dark:bg-blue-900/10 border-t border-slate-100 dark:border-slate-700">
+                      <span className="text-xs font-bold text-blue-700 dark:text-blue-300">Subtotal Item</span>
+                      <span className="text-sm font-extrabold text-blue-700 dark:text-blue-300 tabular-nums">
+                        {formatCurrency(subtotal)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 3. CATATAN TAMBAHAN (Deep Cleaned) */}
+            {(() => {
+              // Bersihkan SEMUA variasi tag items (valid, rusak, terpotong)
+              const cleanNotes = (viewingTransaction.notes || '')
+                .replace(/\[items:[\s\S]*?\]/g, '')      // Hapus tag valid [... ]
+                .replace(/\[items:[\s\S]*$/g, '')        // Hapus tag rusak/terpotong di akhir string
+                .replace(/\]\s*$/, '')                   // Hapus kurung siku tutup  di akhir
+                .replace(/^\]\s*/, '')                   // Hapus kurung siku buka di awal
+                .trim();
+              
+              if (!cleanNotes) return null;
+              
+              return (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Catatan Tambahan</p>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700 whitespace-pre-wrap leading-relaxed">
+                    {cleanNotes}
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+        
             {/* Action Buttons */}
             <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
               <button 
