@@ -458,6 +458,39 @@ const paymentSummary = useMemo(() => {
     }));
   }, [transactions]);
 
+  // ✅ DATA STACKED BAR CHART: METODE PEMBAYARAN 6 BULAN TERAKHIR
+const paymentBarData = useMemo(() => {
+  const now = new Date();
+  const m: Record<string, { tunai: number; nonTunai: number }> = {};
+  
+  // Inisialisasi 6 bulan terakhir
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    m[k] = { tunai: 0, nonTunai: 0 };
+  }
+  
+  // Isi data dari transaksi pengeluaran
+  transactions.forEach(t => {
+    if (t.type !== 'expense') return; // Hanya hitung pengeluaran
+    const d = new Date(t.date);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (m[k]) {
+      if (t.payment_method === 'non_cash') {
+        m[k].nonTunai += t.amount;
+      } else {
+        m[k].tunai += t.amount; // Default ke tunai jika undefined (data lama)
+      }
+    }
+  });
+  
+  return Object.entries(m).map(([k, v]) => ({
+    name: format(new Date(k + '-01'), 'MMM', { locale: id }),
+    Tunai: v.tunai,
+    'Non-Tunai': v.nonTunai,
+  }));
+}, [transactions]);
+
   const generateAdvice = (): string[] => {
     const rate = monthlyIncome > 0 ? (savings / monthlyIncome) * 100 : 0;
     const advice: string[] = [];
@@ -1068,7 +1101,7 @@ if (!user) return <AuthScreen />;
             Halo, {profile?.full_name?.split(' ')[0] || 'User'}👋
           </h1>
           <p className="text-[10px] text-slate-500 dark:text-slate-400">
-            {new Date().toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
+            {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' })}
           </p>
         </div>
         <button
@@ -1076,12 +1109,6 @@ if (!user) return <AuthScreen />;
           className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center active:scale-95"
         >
           {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-600" />}
-        </button>
-        <button
-          onClick={() => { if (window.confirm('Logout?')) { signOut(); toast.success('Berhasil logout'); } }}
-          className="w-9 h-9 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center active:scale-95"
-        >
-          <LogOut className="w-4 h-4 text-red-500" />
         </button>
       </div>
     </div>
@@ -1941,6 +1968,91 @@ if (!user) return <AuthScreen />;
                     );
                   })()}
 
+                  {/* ✅ STACKED BAR CHART: METODE PEMBAYARAN 6 BULAN */}
+<div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+  <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+    💳 Tren Metode Bayar (6 Bulan)
+  </h3>
+  <ResponsiveContainer width="100%" height={200}>
+    <BarChart data={paymentBarData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+      <XAxis 
+        dataKey="name" 
+        tick={{ fontSize: 10, fill: isDark ? '#94a3b8' : '#64748b' }} 
+        tickLine={false} 
+      />
+      <YAxis 
+        tick={{ fontSize: 9, fill: isDark ? '#94a3b8' : '#64748b' }} 
+        tickLine={false} 
+        tickFormatter={v => formatCompact(v)} 
+      />
+      <Tooltip content={<CustomTooltip />} />
+      <Legend 
+        wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+        iconType="square"
+      />
+      <Bar 
+        dataKey="Tunai" 
+        stackId="payment" 
+        fill="#10b981" 
+        radius={[0, 0, 0, 0]}
+      />
+      <Bar 
+        dataKey="Non-Tunai" 
+        stackId="payment" 
+        fill="#3b82f6" 
+        radius={[4, 4, 0, 0]}
+      />
+    </BarChart>
+  </ResponsiveContainer>
+  
+  {/* 💡 INSIGHT FA OTOMATIS */}
+  {(() => {
+    if (paymentBarData.length < 2) return null;
+    const thisMonth = paymentBarData[paymentBarData.length - 1];
+    const lastMonth = paymentBarData[paymentBarData.length - 2];
+    
+    const thisTotal = thisMonth.Tunai + thisMonth['Non-Tunai'];
+    const lastTotal = lastMonth.Tunai + lastMonth['Non-Tunai'];
+    
+    if (thisTotal === 0) return null;
+    
+    const thisNonCashPct = (thisMonth['Non-Tunai'] / thisTotal) * 100;
+    const lastNonCashPct = lastTotal > 0 ? (lastMonth['Non-Tunai'] / lastTotal) * 100 : 0;
+    const trend = thisNonCashPct - lastNonCashPct;
+    
+    let insight = '';
+    let insightColor = '';
+    let insightIcon = '';
+    
+    if (thisNonCashPct > 70) {
+      insight = `${thisNonCashPct.toFixed(0)}% pengeluaran via Non-Tunai! Sangat tinggi, pertimbangkan tarik tunai mingguan untuk kontrol lebih baik.`;
+      insightColor = 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
+      insightIcon = '🚨';
+    } else if (thisNonCashPct > 50 && trend > 10) {
+      insight = `Non-Tunai naik ${trend.toFixed(0)}% dari bulan lalu! Waspada kebocoran halus via e-wallet/QRIS.`;
+      insightColor = 'text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800';
+      insightIcon = '⚠️';
+    } else if (thisNonCashPct < 40) {
+      insight = `Pola sehat! ${thisNonCashPct.toFixed(0)}% Non-Tunai. Anda punya kontrol bagus atas pengeluaran digital.`;
+      insightColor = 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
+      insightIcon = '✨';
+    } else {
+      insight = `Rasio seimbang: ${thisNonCashPct.toFixed(0)}% Non-Tunai. Pertahankan!`;
+      insightColor = 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
+      insightIcon = '💡';
+    }
+    
+    return (
+      <div className={`mt-3 p-2.5 border rounded-lg ${insightColor}`}>
+        <p className="text-[11px] leading-relaxed">
+          <span className="font-bold">{insightIcon} FA Insight:</span> {insight}
+        </p>
+      </div>
+    );
+  })()}
+</div>
+
                   {/* Calendar Heatmap */}
                   {(() => {
                     const now = new Date();
@@ -2439,6 +2551,27 @@ if (!user) return <AuthScreen />;
                       <Trash2 className="w-4 h-4" /> Hapus Semua
                     </button>
                   </div>
+                  {/* ✅ TOMBOL LOGOUT BARU - PINDAH KE SINI */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-2 flex items-center gap-1.5">
+                  🔐 Akun
+                </h3>
+                <button 
+                  onClick={() => { 
+                    if (window.confirm('⚠️ Yakin ingin logout?\n\nAnda harus login kembali untuk mengakses data.')) { 
+                      signOut(); 
+                      toast.success('Berhasil logout 👋'); 
+                    } 
+                  }} 
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-red-500 to-rose-600 text-white py-3.5 rounded-xl font-bold active:scale-95 shadow-lg shadow-red-500/30 transition-all"
+                >
+                  <LogOut className="w-4 h-4" /> 
+                  Logout dari {profile?.full_name?.split(' ')[0] || 'Akun'}
+                </button>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center mt-2">
+                  Data Anda tetap aman tersimpan di cloud ☁️
+                </p>
+              </div>
                 </div>
               )}
             </div>
