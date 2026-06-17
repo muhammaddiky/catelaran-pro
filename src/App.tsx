@@ -32,6 +32,7 @@ interface Transaction {
   createdAt: string;
   recurringId?: string;
   book_id?: string;
+  payment_method?: string;
 }
 
 interface CategoryConfig {
@@ -107,7 +108,11 @@ const expenseCategories: Record<string, CategoryConfig> = {
 };
 
 const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-
+// ✅ KONFIGURASI METODE PEMBAYARAN (2 KATEGORI)
+const paymentMethods: Record<string, { name: string; icon: string; color: string; bg: string }> = {
+  cash: { name: 'Tunai', icon: '💵', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
+  non_cash: { name: 'Non-Tunai', icon: '📲', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' }, // QRIS, E-Wallet, Debit
+};
 // ✅ CONTOH DESKRIPSI PER KATEGORI (untuk placeholder)
 const categoryExamples: Record<string, string[]> = {
   // === PEMASUKAN ===
@@ -195,7 +200,7 @@ refresh// ✅ TAMBAHKAN BARIS INI
 const transactions: Transaction[] = rawTransactions.map(t => ({
   id: t.id, date: t.date, type: t.type, category: t.category,
   description: t.description, amount: t.amount, notes: t.notes || undefined, createdAt: t.created_at,
-  book_id: t.book_id, // ✅ TAMBAHKAN BARIS INI
+  book_id: t.book_id, payment_method: t.payment_method, // ✅ TAMBAHKAN BARIS INI
 }));
 
 const budgets: Budget[] = rawBudgets.map(b => ({
@@ -275,6 +280,7 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
     description: '',
     amount: '',
     notes: '',
+    payment_method: 'cash',
   });
   const [budgetForm, setBudgetForm] = useState({ category: 'makanan', limit: '' });
   const [showBudgetForm, setShowBudgetForm] = useState(false);
@@ -380,7 +386,35 @@ useEffect(() => {
     }).reduce((s, t) => s + t.amount, 0);
   }, [transactions]);
 
-  const savings = useMemo(() => monthlyIncome - monthlyExpense, [monthlyIncome, monthlyExpense]);
+    const savings = useMemo(() => monthlyIncome - monthlyExpense, [monthlyIncome, monthlyExpense]);
+
+    // ✅ HITUNG PENGELUARAN BERDASARKAN METODE BAYAR (BULAN INI)
+const paymentSummary = useMemo(() => {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  
+  let cashTotal = 0;
+  let nonCashTotal = 0;
+  
+  transactions.forEach(t => {
+    if (t.type !== 'expense') return; // Hanya hitung pengeluaran
+    const d = new Date(t.date);
+    if (d < monthStart || d > monthEnd) return; // Hanya bulan ini
+    
+    if (t.payment_method === 'non_cash') {
+      nonCashTotal += t.amount;
+    } else {
+      cashTotal += t.amount; // Default ke cash jika undefined
+    }
+  });
+  
+  const total = cashTotal + nonCashTotal;
+  const cashPct = total > 0 ? (cashTotal / total) * 100 : 0;
+  const nonCashPct = total > 0 ? (nonCashTotal / total) * 100 : 0;
+  
+  return { cashTotal, nonCashTotal, total, cashPct, nonCashPct };
+}, [transactions]);
 
   const monthlySpending = useMemo(() => {
     const now = new Date();
@@ -465,6 +499,7 @@ useEffect(() => {
   const payload = {
     date: formData.date, type: formData.type, category: formData.category,
     description: formData.description, amount: parseInt(formData.amount), notes: formData.notes || null,
+    payment_method: formData.payment_method,
   };
   if (editingId) {
     const result = await updateTransaction(editingId, payload);
@@ -1298,6 +1333,72 @@ if (!user) return <AuthScreen />;
                 </div>
               </div>
 
+              {/* ✅ KARTU RINGKASAN METODE PEMBAYARAN */}
+{paymentSummary.total > 0 && (
+  <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+    <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+      💳 Metode Bayar Bulan Ini
+    </h3>
+    
+    {/* Progress Bar */}
+    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-3 flex">
+      <div 
+        className="h-full bg-gradient-to-r from-green-400 to-green-500 transition-all duration-500" 
+        style={{ width: `${paymentSummary.cashPct}%` }}
+      />
+      <div 
+        className="h-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500" 
+        style={{ width: `${paymentSummary.nonCashPct}%` }}
+      />
+    </div>
+    
+    {/* Detail Angka */}
+    <div className="grid grid-cols-2 gap-3">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+          <span className="text-base">💵</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">Tunai</p>
+          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+            {formatCompact(paymentSummary.cashTotal)}
+          </p>
+          <p className="text-[10px] text-green-600 dark:text-green-400 font-semibold">
+            {paymentSummary.cashPct.toFixed(0)}%
+          </p>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <span className="text-base">📲</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">Non-Tunai</p>
+          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+            {formatCompact(paymentSummary.nonCashTotal)}
+          </p>
+          <p className={`text-[10px] font-semibold ${
+            paymentSummary.nonCashPct > 60 ? 'text-orange-500' : 'text-blue-600 dark:text-blue-400'
+          }`}>
+            {paymentSummary.nonCashPct.toFixed(0)}%
+          </p>
+        </div>
+      </div>
+    </div>
+    
+    {/* Insight FA */}
+    {paymentSummary.nonCashPct > 60 && (
+      <div className="mt-3 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+        <p className="text-[10px] text-orange-700 dark:text-orange-300 leading-relaxed">
+          ⚠️ <span className="font-bold">FA Insight:</span> {paymentSummary.nonCashPct.toFixed(0)}% pengeluaran Anda via Non-Tunai! 
+          Pertimbangkan batasi maksimal 50% untuk kontrol lebih baik.
+        </p>
+      </div>
+    )}
+  </div>
+)}
+
                         {/* BREAKDOWN BULAN INI - DONUT CHART + LIST */}
           {pieData.length > 0 && (
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-md">
@@ -1425,6 +1526,8 @@ if (!user) return <AuthScreen />;
             </div>
           )}
 
+         
+
           {/* INPUT */}
           {activeTab === 'input' && (
             <div className="space-y-4">
@@ -1444,6 +1547,7 @@ if (!user) return <AuthScreen />;
                     💰 Pemasukan
                   </button>
                 </div>
+              
                 <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
@@ -1472,6 +1576,26 @@ if (!user) return <AuthScreen />;
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan</label>
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 h-20 resize-none" />
+                  </div>
+                  {/* ✅ METODE PEMBAYARAN - DI BAWAH CATATAN */}
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Pilih Metode Bayar</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(paymentMethods).map(([key, pm]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setFormData(p => ({ ...p, payment_method: key }))}
+                          className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                            formData.payment_method === key 
+                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                          }`}>
+                          <span className="text-base">{pm.icon}</span>
+                          <span>{pm.name}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <button onClick={handleAddTransaction}
                     className={`w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all active:scale-95 shadow-lg ${transactionType === 'income' ? 'bg-green-500 shadow-green-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
@@ -1615,6 +1739,13 @@ if (!user) return <AuthScreen />;
                             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
                               {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
                             </p>
+
+                            {/* ✅ BADGE METODE PEMBAYARAN */}
+                            {t.payment_method && paymentMethods[t.payment_method] && (
+                              <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${paymentMethods[t.payment_method].bg} ${paymentMethods[t.payment_method].color}`}>
+                                {paymentMethods[t.payment_method].icon} {paymentMethods[t.payment_method].name}
+                              </span>
+                            )}
                             
                             {/* ✅ BADGE SUMBER BUKU (HANYA MUNCUL SAAT MODE KELUARGA AKTIF) */}
                             {isFamilyMode && t.book_id && (
@@ -2931,6 +3062,17 @@ if (!user) return <AuthScreen />;
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {format(new Date(viewingTransaction.date), 'dd MMMM yyyy', { locale: id })}
                   </p>
+                  {/* ✅ BADGE METODE PEMBAYARAN DI MODAL VIEW */}
+                  {viewingTransaction.payment_method && paymentMethods[viewingTransaction.payment_method] && (
+                    <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${paymentMethods[viewingTransaction.payment_method].bg} ${paymentMethods[viewingTransaction.payment_method].color}`}>
+                      {paymentMethods[viewingTransaction.payment_method].icon} {paymentMethods[viewingTransaction.payment_method].name}
+                    </span>
+                  )}
+                  {!viewingTransaction.payment_method && (
+                    <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                      💵 Tunai (default)
+                    </span>
+                  )}
                 </div>
               </div>
               <button onClick={() => setViewingTransaction(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">

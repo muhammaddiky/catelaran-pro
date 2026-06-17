@@ -17,7 +17,7 @@ export interface Book {
 export interface SupabaseTransaction {
   id: string; user_id: string; book_id: string | null; date: string;
   type: 'income' | 'expense'; category: string; description: string;
-  amount: number; notes?: string | null; created_at: string;
+  amount: number; notes?: string | null; created_at: string; payment_method?: string;
 }
 
 export interface SupabaseBudget {
@@ -273,7 +273,7 @@ useEffect(() => {
   };
 
   const updateTransaction = async (id: string, updates: Partial<SupabaseTransaction>) => {
-    const { data, error } = await supabase.from('transactions').update(updates).eq('id', id).select().single();
+    const { data, error } = await supabase.from('transactions').update({ ...t }).eq('id', id).select().single();
     if (error) { toast.error('Gagal update'); return null; }
     setTransactions(prev => prev.map(t => t.id === id ? data : t));
     return data;
