@@ -272,12 +272,26 @@ useEffect(() => {
     return data;
   };
 
-  const updateTransaction = async (id: string, updates: Partial<SupabaseTransaction>) => {
-    const { data, error } = await supabase.from('transactions').update({ ...t }).eq('id', id).select().single();
-    if (error) { toast.error('Gagal update'); return null; }
-    setTransactions(prev => prev.map(t => t.id === id ? data : t));
-    return data;
-  };
+  const updateTransaction = async (id: string, updates: Partial<Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>>) => {
+  if (!user || !activeBook) return null;
+  
+  const { data, error } = await supabase
+    .from('transactions')
+    .update(updates) // ✅ PENTING: Gunakan 'updates' di sini, jangan 't'
+    .eq('id', id)
+    .select()
+    .single();
+    
+  if (error) { 
+    console.error('❌ Update transaction error:', error);
+    toast.error('Gagal update transaksi'); 
+    return null; 
+  }
+  
+  // Update state lokal agar UI langsung berubah tanpa reload
+  setTransactions(prev => prev.map(x => x.id === id ? data : x));
+  return data;
+};
 
   const deleteTransaction = async (id: string) => {
     const { error } = await supabase.from('transactions').delete().eq('id', id);

@@ -523,7 +523,7 @@ const paymentSummary = useMemo(() => {
 };
 
   const handleEdit = (t: Transaction) => {
-    setFormData({ date: t.date, type: t.type, category: t.category, description: t.description, amount: t.amount.toString(), notes: t.notes || '' });
+    setFormData({ date: t.date, type: t.type, category: t.category, description: t.description, amount: t.amount.toString(), notes: t.notes || '', payment_method: t.payment_method || 'cash' });
     setEditingId(t.id);
     setActiveTab('input');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1602,7 +1602,7 @@ if (!user) return <AuthScreen />;
                     {editingId ? '✏️ Update' : '➕ Simpan'} Transaksi
                   </button>
                   {editingId && (
-                    <button onClick={() => { setEditingId(null); setFormData({ date: new Date().toISOString().split('T')[0], type: 'expense', category: 'makanan', description: '', amount: '', notes: '' }); }}
+                    <button onClick={() => { setEditingId(null); setFormData({ date: new Date().toISOString().split('T')[0], type: 'expense', category: 'makanan', description: '', amount: '', notes: '', payment_method: 'cash' }); }}
                       className="w-full py-3 rounded-xl font-semibold text-sm bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 active:scale-95">❌ Batal
                     </button>
                   )}
