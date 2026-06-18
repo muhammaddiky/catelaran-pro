@@ -69,3 +69,9 @@ html {
     font-size: 15px !important;
   }
 }
+
+/* TAMBAH DI AKHIR FILE index.css */
+@keyframes scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}

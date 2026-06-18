@@ -81,6 +81,9 @@ type TabType = 'dashboard' | 'input' | 'history' | 'more';
 type MoreTab = 'analisis' | 'budget' | 'goals' | 'recurring' | 'settings';
 
 // ==================== CONSTANTS ====================
+const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']; // ✅ HARUS DI SINI
+
+
 const incomeCategories: Record<string, CategoryConfig> = {
   gaji: { id: 'gaji', name: 'Gaji', shortName: 'Gaji', icon: '💼', color: 'text-green-600', bgColor: 'bg-green-100', type: 'income' },
   usaha: { id: 'usaha', name: 'Usaha', shortName: 'Usaha', icon: '🏪', color: 'text-blue-600', bgColor: 'bg-blue-100', type: 'income' },
@@ -107,12 +110,37 @@ const expenseCategories: Record<string, CategoryConfig> = {
   cadangan: { id: 'cadangan', name: 'Cadangan', shortName: 'Cdg', icon: '🔐', color: 'text-slate-600', bgColor: 'bg-slate-100', type: 'expense' },
 };
 
-const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-// ✅ KONFIGURASI METODE PEMBAYARAN (2 KATEGORI)
-const paymentMethods: Record<string, { name: string; icon: string; color: string; bg: string }> = {
-  cash: { name: 'Tunai', icon: '💵', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
-  non_cash: { name: 'Non-Tunai', icon: '📲', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' }, // QRIS, E-Wallet, Debit
+// ✅ KONFIGURASI METODE PEMBAYARAN (3 KATEGORI)
+const paymentMethods: Record<string, { 
+  name: string; 
+  icon: string; 
+  color: string; 
+  bg: string;
+  description: string;  // Tambahkan deskripsi untuk detail
+}> = {
+  cash: { 
+    name: 'Tunai', 
+    icon: '💵', 
+    color: 'text-green-600', 
+    bg: 'bg-green-100 dark:bg-green-900/30',
+    description: 'Uang tunai, dompet fisik'
+  },
+  qris: { 
+    name: 'QRIS', 
+    icon: '📱', 
+    color: 'text-blue-600', 
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+    description: 'Pembayaran digital via QRIS'
+  },
+  transfer: { 
+    name: 'Transfer', 
+    icon: '🏦', 
+    color: 'text-indigo-600', 
+    bg: 'bg-indigo-100 dark:bg-indigo-900/30',
+    description: 'Transfer bank, virtual account'
+  },
 };
+
 // ✅ CONTOH DESKRIPSI PER KATEGORI (untuk placeholder)
 const categoryExamples: Record<string, string[]> = {
   // === PEMASUKAN ===
@@ -382,60 +410,46 @@ const notifiedBudgetsRef = useRef<Set<string>>(new Set());
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  // ========== RECURRING PROCESSOR (FIXED) ==========
-useEffect(() => {
-  if (recurringTransactions.length === 0) return;
+ 
+// ✅ FUNGSI BARU: BAYAR RECURRING MANUAL
+const handlePayRecurring = async (r: RecurringTransaction) => {
+  if (!window.confirm(`💰 Bayar "${r.name}" sebesar ${formatCurrency(r.amount)} sekarang?\n\nTransaksi akan tercatat & tanggal berikutnya otomatis ter-update.`)) {
+    return;
+  }
   
-  const processRecurring = async () => {
-    const now = new Date();
-    let processedCount = 0;
-    
-    for (const r of recurringTransactions) {
-      if (!r.isActive) continue;
-      
-      const next = new Date(r.nextDate);
-      if (next > now) continue; // Belum waktunya
-      
-      try {
-        // ✅ SIMPAN TRANSAKSI KE SUPABASE
-        await addTransaction({
-          date: now.toISOString().split('T')[0],
-          type: r.type,
-          category: r.category,
-          description: `Auto: ${r.name}`,
-          amount: r.amount,
-          notes: `[recurring:${r.id}]`,
-          payment_method: 'cash',
-        });
-        
-        // ✅ UPDATE NEXT DATE DI SUPABASE
-        const n = new Date(next);
-        switch (r.frequency) {
-          case 'daily': n.setDate(n.getDate() + 1); break;
-          case 'weekly': n.setDate(n.getDate() + 7); break;
-          case 'monthly': n.setMonth(n.getMonth() + 1); break;
-          case 'yearly': n.setFullYear(n.getFullYear() + 1); break;
-        }
-        
-        await updateRecurring(r.id, {
-          next_date: n.toISOString().split('T')[0],
-        });
-        
-        processedCount++;
-      } catch (err) {
-        console.error(`Failed to process recurring ${r.name}:`, err);
-      }
+  const now = new Date();
+  
+  // ✅ LANGKAH 1: Catat transaksi ke database
+  const result = await addTransaction({
+    date: now.toISOString().split('T')[0],
+    type: r.type,
+    category: r.category,
+    description: r.name,
+    amount: r.amount,
+    notes: `[recurring:${r.id}]`,
+    payment_method: 'cash', // Default tunai, bisa ditambahkan modal pilih metode nanti
+  });
+  
+  if (result) {
+    // ✅ LANGKAH 2: Update next_date recurring ke periode berikutnya
+    const n = new Date(r.nextDate);
+    switch (r.frequency) {
+      case 'daily': n.setDate(n.getDate() + 1); break;
+      case 'weekly': n.setDate(n.getDate() + 7); break;
+      case 'monthly': n.setMonth(n.getMonth() + 1); break;
+      case 'yearly': n.setFullYear(n.getFullYear() + 1); break;
     }
     
-    if (processedCount > 0) {
-      notify.success(`${processedCount} transaksi auto diproses`);
-      // ✅ Refresh data dari Supabase agar UI sinkron
-      if (refresh) await refresh();
-    }
-  };
-  
-  processRecurring();
-}, [recurringTransactions.length, addTransaction, updateRecurring, refresh]);
+    await updateRecurring(r.id, {
+      next_date: n.toISOString().split('T')[0],
+    });
+    
+    notify.success(`✅ "${r.name}" tercatat & jadwal diperbarui!`);
+    
+    // ✅ LANGKAH 3: Refresh data agar UI sinkron
+    if (refresh) await refresh();
+  }
+};
 
   /// ========== BUDGET ALERTS ==========
 useEffect(() => {
@@ -487,32 +501,36 @@ useEffect(() => {
 
     const savings = useMemo(() => monthlyIncome - monthlyExpense, [monthlyIncome, monthlyExpense]);
 
-    // ✅ HITUNG PENGELUARAN BERDASARKAN METODE BAYAR (BULAN INI)
+  // ✅ HITUNG PENGELUARAN BERDASARKAN METODE BAYAR (BULAN INI) - 3 KATEGORI
 const paymentSummary = useMemo(() => {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
   
-  let cashTotal = 0;
-  let nonCashTotal = 0;
+  let tunaiTotal = 0;
+  let qrisTotal = 0;
+  let transferTotal = 0;
   
   transactions.forEach(t => {
-    if (t.type !== 'expense') return; // Hanya hitung pengeluaran
+    if (t.type !== 'expense') return;
     const d = new Date(t.date);
-    if (d < monthStart || d > monthEnd) return; // Hanya bulan ini
+    if (d < monthStart || d > monthEnd) return;
     
-    if (t.payment_method === 'non_cash') {
-      nonCashTotal += t.amount;
+    if (t.payment_method === 'qris') {
+      qrisTotal += t.amount;
+    } else if (t.payment_method === 'transfer') {
+      transferTotal += t.amount;
     } else {
-      cashTotal += t.amount; // Default ke cash jika undefined
+      tunaiTotal += t.amount; // Default ke tunai jika undefined (data lama)
     }
   });
   
-  const total = cashTotal + nonCashTotal;
-  const cashPct = total > 0 ? (cashTotal / total) * 100 : 0;
-  const nonCashPct = total > 0 ? (nonCashTotal / total) * 100 : 0;
+  const total = tunaiTotal + qrisTotal + transferTotal;
+  const tunaiPct = total > 0 ? (tunaiTotal / total) * 100 : 0;
+  const qrisPct = total > 0 ? (qrisTotal / total) * 100 : 0;
+  const transferPct = total > 0 ? (transferTotal / total) * 100 : 0;
   
-  return { cashTotal, nonCashTotal, total, cashPct, nonCashPct };
+  return { tunaiTotal, qrisTotal, transferTotal, total, tunaiPct, qrisPct, transferPct };
 }, [transactions]);
 
   const monthlySpending = useMemo(() => {
@@ -557,28 +575,30 @@ const paymentSummary = useMemo(() => {
     }));
   }, [transactions]);
 
-  // ✅ DATA STACKED BAR CHART: METODE PEMBAYARAN 6 BULAN TERAKHIR
+  // ✅ DATA STACKED BAR CHART: METODE PEMBAYARAN 6 BULAN (3 KATEGORI)
 const paymentBarData = useMemo(() => {
   const now = new Date();
-  const m: Record<string, { tunai: number; nonTunai: number }> = {};
+  const m: Record<string, { tunai: number; qris: number; transfer: number }> = {};
   
   // Inisialisasi 6 bulan terakhir
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    m[k] = { tunai: 0, nonTunai: 0 };
+    m[k] = { tunai: 0, qris: 0, transfer: 0 };
   }
   
   // Isi data dari transaksi pengeluaran
   transactions.forEach(t => {
-    if (t.type !== 'expense') return; // Hanya hitung pengeluaran
+    if (t.type !== 'expense') return;
     const d = new Date(t.date);
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     if (m[k]) {
-      if (t.payment_method === 'non_cash') {
-        m[k].nonTunai += t.amount;
+      if (t.payment_method === 'qris') {
+        m[k].qris += t.amount;
+      } else if (t.payment_method === 'transfer') {
+        m[k].transfer += t.amount;
       } else {
-        m[k].tunai += t.amount; // Default ke tunai jika undefined (data lama)
+        m[k].tunai += t.amount; // Default ke tunai jika undefined
       }
     }
   });
@@ -586,7 +606,8 @@ const paymentBarData = useMemo(() => {
   return Object.entries(m).map(([k, v]) => ({
     name: format(new Date(k + '-01'), 'MMM', { locale: id }),
     Tunai: v.tunai,
-    'Non-Tunai': v.nonTunai,
+    QRIS: v.qris,
+    Transfer: v.transfer,
   }));
 }, [transactions]);
 
@@ -724,8 +745,9 @@ const paymentBarData = useMemo(() => {
   }
   
   return transactions
-    .filter(t => {
-      const d = new Date(t.date);
+.filter(t => t != null) // ✅ SAFETY: Buang data null/rusak agar tidak crash
+.filter(t => {
+  const d = new Date(t.date);
       if (startDate && d < startDate) return false;
       if (endDate && d > endDate) return false;
       return true;
@@ -1573,69 +1595,86 @@ if (!user) return <AuthScreen />;
                 </div>
               </div>
 
-              {/* ✅ KARTU RINGKASAN METODE PEMBAYARAN */}
+              {/* ✅ KARTU RINGKASAN METODE PEMBAYARAN (3 KATEGORI) */}
 {paymentSummary.total > 0 && (
   <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
     <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
       💳 Metode Bayar Bulan Ini
     </h3>
     
-    {/* Progress Bar */}
+    {/* Progress Bar 3 Warna */}
     <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-3 flex">
       <div 
         className="h-full bg-gradient-to-r from-green-400 to-green-500 transition-all duration-500" 
-        style={{ width: `${paymentSummary.cashPct}%` }}
+        style={{ width: `${paymentSummary.tunaiPct}%` }}
       />
       <div 
         className="h-full bg-gradient-to-r from-blue-400 to-blue-500 transition-all duration-500" 
-        style={{ width: `${paymentSummary.nonCashPct}%` }}
+        style={{ width: `${paymentSummary.qrisPct}%` }}
+      />
+      <div 
+        className="h-full bg-gradient-to-r from-indigo-400 to-indigo-500 transition-all duration-500" 
+        style={{ width: `${paymentSummary.transferPct}%` }}
       />
     </div>
-    
-    {/* Detail Angka */}
-    <div className="grid grid-cols-2 gap-3">
-      <div className="flex items-center gap-2">
+
+    {/* Detail Angka - 3 Kolom */}
+    <div className="grid grid-cols-3 gap-2">
+      <div className="flex flex-col items-center gap-1">
         <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
           <span className="text-base">💵</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] text-slate-500 dark:text-slate-400">Tunai</p>
-          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-            {formatCompact(paymentSummary.cashTotal)}
-          </p>
-          <p className="text-[10px] text-green-600 dark:text-green-400 font-semibold">
-            {paymentSummary.cashPct.toFixed(0)}%
-          </p>
-        </div>
-      </div>
-      
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-          <span className="text-base">📲</span>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-[10px] text-slate-500 dark:text-slate-400">Non-Tunai</p>
-          <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-            {formatCompact(paymentSummary.nonCashTotal)}
-          </p>
-          <p className={`text-[10px] font-semibold ${
-            paymentSummary.nonCashPct > 60 ? 'text-orange-500' : 'text-blue-600 dark:text-blue-400'
-          }`}>
-            {paymentSummary.nonCashPct.toFixed(0)}%
-          </p>
-        </div>
-      </div>
-    </div>
-    
-    {/* Insight FA */}
-    {paymentSummary.nonCashPct > 60 && (
-      <div className="mt-3 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
-        <p className="text-[10px] text-orange-700 dark:text-orange-300 leading-relaxed">
-          ⚠️ <span className="font-bold">FA Insight:</span> {paymentSummary.nonCashPct.toFixed(0)}% pengeluaran Anda via Non-Tunai! 
-          Pertimbangkan batasi maksimal 50% untuk kontrol lebih baik.
+        <p className="text-[10px] text-slate-500 dark:text-slate-400">Tunai</p>
+        <p className="text-xs font-bold text-slate-900 dark:text-white">
+          {formatCompact(paymentSummary.tunaiTotal)}
+        </p>
+        <p className="text-[10px] text-green-600 dark:text-green-400 font-semibold">
+          {paymentSummary.tunaiPct.toFixed(0)}%
         </p>
       </div>
-    )}
+      
+      <div className="flex flex-col items-center gap-1">
+        <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <span className="text-base">📱</span>
+        </div>
+        <p className="text-[10px] text-slate-500 dark:text-slate-400">QRIS</p>
+        <p className="text-xs font-bold text-slate-900 dark:text-white">
+          {formatCompact(paymentSummary.qrisTotal)}
+        </p>
+        <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
+          {paymentSummary.qrisPct.toFixed(0)}%
+        </p>
+      </div>
+      
+      <div className="flex flex-col items-center gap-1">
+        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+          <span className="text-base">🏦</span>
+        </div>
+        <p className="text-[10px] text-slate-500 dark:text-slate-400">Transfer</p>
+        <p className="text-xs font-bold text-slate-900 dark:text-white">
+          {formatCompact(paymentSummary.transferTotal)}
+        </p>
+        <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+          {paymentSummary.transferPct.toFixed(0)}%
+        </p>
+      </div>
+    </div>
+
+    {/* Insight FA */}
+    {(() => {
+      const digitalPct = paymentSummary.qrisPct + paymentSummary.transferPct;
+      if (digitalPct > 60) {
+        return (
+          <div className="mt-3 p-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+            <p className="text-[10px] text-orange-700 dark:text-orange-300 leading-relaxed">
+              ⚠️ <span className="font-bold">FA Insight:</span> {digitalPct.toFixed(0)}% pengeluaran Anda via digital (QRIS + Transfer)! 
+              Pertimbangkan batasi maksimal 50% untuk kontrol lebih baik.
+            </p>
+          </div>
+        );
+      }
+      return null;
+    })()}
   </div>
 )}
 
@@ -1936,26 +1975,36 @@ if (!user) return <AuthScreen />;
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 h-20 resize-none" />
                   </div>
-                  {/* ✅ METODE PEMBAYARAN - DI BAWAH CATATAN */}
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Pilih Metode Bayar</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(paymentMethods).map(([key, pm]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => setFormData(p => ({ ...p, payment_method: key }))}
-                          className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                            formData.payment_method === key 
-                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                          }`}>
-                          <span className="text-base">{pm.icon}</span>
-                          <span>{pm.name}</span>
-                        </button>
-                      ))}
-                    </div>
+                  {/* ✅ METODE PEMBAYARAN - 3 KATEGORI SCROLLABLE */}
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Pilih Metode Bayar</label>
+                <div className="overflow-x-auto pb-2 -mx-1 px-1">
+                  <div className="flex gap-2 min-w-max">
+                    {Object.entries(paymentMethods).map(([key, pm]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setFormData(p => ({ ...p, payment_method: key }))}
+                        className={`flex-none px-4 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
+                          formData.payment_method === key 
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        <span className="text-base">{pm.icon}</span>
+                        <span>{pm.name}</span>
+                      </button>
+                    ))}
                   </div>
+                </div>
+                
+                {/* Deskripsi metode yang dipilih */}
+                {paymentMethods[formData.payment_method]?.description && (
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    {paymentMethods[formData.payment_method].description}
+                  </p>
+                )}
+              </div>
                   <button onClick={handleAddTransaction}
                     className={`w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all active:scale-95 shadow-lg ${transactionType === 'income' ? 'bg-green-500 shadow-green-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
                     {editingId ? '✏️ Update' : '➕ Simpan'} Transaksi
@@ -2083,60 +2132,58 @@ if (!user) return <AuthScreen />;
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-slate-500 dark:text-slate-400 px-1">📋 {filteredTransactions.length} transaksi ditemukan</p>
-                  {filteredTransactions.map(t => {
-                    const cats = t.type === 'income' ? incomeCategories : expenseCategories;
-                    const cat = cats[t.category];
-                    return (
-                      <div key={t.id} className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm active:scale-[0.99] transition-transform">
-                        <div className="flex items-center gap-3">
-                          <div className={`text-xl w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${cat?.bgColor || 'bg-slate-100'}`}>
-                            {cat?.icon || '💰'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{cat?.name || 'Transaksi'}</h3>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t.description}</p>
-                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                              {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
-                            </p>
+                 {filteredTransactions.map(t => {
+  if (!t) return null; // ✅ Safety check ekstra
+  const cats = t.type === 'income' ? incomeCategories : expenseCategories;
+  const cat = cats[t.category];
+  return (
+    <div key={t.id} className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 shadow-sm active:scale-[0.99] transition-transform">
+      <div className="flex items-center gap-3">
+        <div className={`text-xl w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${cat?.bgColor || 'bg-slate-100'}`}>
+          {cat?.icon || '💰'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{cat?.name || 'Transaksi'}</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t.description}</p>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+            {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
+          </p>
 
-                            {/* ✅ BADGE METODE PEMBAYARAN */}
-                            {t.payment_method && paymentMethods[t.payment_method] && (
-                              <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${paymentMethods[t.payment_method].bg} ${paymentMethods[t.payment_method].color}`}>
-                                {paymentMethods[t.payment_method].icon} {paymentMethods[t.payment_method].name}
-                              </span>
-                            )}
-                            
-                            {/* ✅ BADGE SUMBER BUKU (HANYA MUNCUL SAAT MODE KELUARGA AKTIF) */}
-                            {isFamilyMode && t.book_id && (
-                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-[10px] font-bold text-blue-700 dark:text-blue-300 w-fit border border-blue-200 dark:border-blue-800">
-                                {books.find(b => b.id === t.book_id)?.icon || '📘'} 
-                                {books.find(b => b.id === t.book_id)?.name || 'Buku'}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className={`text-sm font-bold ${t.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
-                              {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount).replace('Rp', '').trim()}
-                            </p>
-                            <div className="flex gap-1 mt-1.5 justify-end">
-                                  {/* Tombol View Detail */}
-                                  <button onClick={() => setViewingTransaction(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
-                                    <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                                  </button>
-                                  {/* Tombol Edit */}
-                                  <button onClick={() => handleEdit(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
-                                    <Edit2 className="w-3 h-3 text-blue-500" />
-                                  </button>
-                                  {/* Tombol Hapus */}
-                                  <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
-                                    <Trash2 className="w-3 h-3 text-red-500" />
-                                  </button>
-                                </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+          {/* ✅ BADGE METODE PEMBAYARAN (DENGAN OPTIONAL CHAINING) */}
+          {t?.payment_method && paymentMethods[t.payment_method] && (
+            <span className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${paymentMethods[t.payment_method].bg} ${paymentMethods[t.payment_method].color}`}>
+              {paymentMethods[t.payment_method].icon} {paymentMethods[t.payment_method].name}
+            </span>
+          )}
+          
+          {/* ✅ BADGE SUMBER BUKU */}
+          {isFamilyMode && t?.book_id && (
+            <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-[10px] font-bold text-blue-700 dark:text-blue-300 w-fit border border-blue-200 dark:border-blue-800">
+              {books.find(b => b.id === t.book_id)?.icon || '📘'} 
+              {books.find(b => b.id === t.book_id)?.name || 'Buku'}
+            </span>
+          )}
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className={`text-sm font-bold ${t.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
+            {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount).replace('Rp', '').trim()}
+          </p>
+          <div className="flex gap-1 mt-1.5 justify-end">
+            <button onClick={() => setViewingTransaction(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
+              <Eye className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+            </button>
+            <button onClick={() => handleEdit(t)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
+              <Edit2 className="w-3 h-3 text-blue-500" />
+            </button>
+            <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90 transition-transform">
+              <Trash2 className="w-3 h-3 text-red-500" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+})}
                 </div>
               )}
             </div>
@@ -2323,6 +2370,7 @@ if (!user) return <AuthScreen />;
         wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
         iconType="square"
       />
+      // Dalam file App.tsx, di bagian chart "Tren Metode Bayar (6 Bulan)"
       <Bar 
         dataKey="Tunai" 
         stackId="payment" 
@@ -2330,59 +2378,66 @@ if (!user) return <AuthScreen />;
         radius={[0, 0, 0, 0]}
       />
       <Bar 
-        dataKey="Non-Tunai" 
+        dataKey="QRIS" 
         stackId="payment" 
         fill="#3b82f6" 
+        radius={[4, 4, 0, 0]}
+      />
+      <Bar 
+        dataKey="Transfer" 
+        stackId="payment" 
+        fill="#8b5cf6" 
         radius={[4, 4, 0, 0]}
       />
     </BarChart>
   </ResponsiveContainer>
   
-  {/* 💡 INSIGHT FA OTOMATIS */}
-  {(() => {
-    if (paymentBarData.length < 2) return null;
-    const thisMonth = paymentBarData[paymentBarData.length - 1];
-    const lastMonth = paymentBarData[paymentBarData.length - 2];
-    
-    const thisTotal = thisMonth.Tunai + thisMonth['Non-Tunai'];
-    const lastTotal = lastMonth.Tunai + lastMonth['Non-Tunai'];
-    
-    if (thisTotal === 0) return null;
-    
-    const thisNonCashPct = (thisMonth['Non-Tunai'] / thisTotal) * 100;
-    const lastNonCashPct = lastTotal > 0 ? (lastMonth['Non-Tunai'] / lastTotal) * 100 : 0;
-    const trend = thisNonCashPct - lastNonCashPct;
-    
-    let insight = '';
-    let insightColor = '';
-    let insightIcon = '';
-    
-    if (thisNonCashPct > 70) {
-      insight = `${thisNonCashPct.toFixed(0)}% pengeluaran via Non-Tunai! Sangat tinggi, pertimbangkan tarik tunai mingguan untuk kontrol lebih baik.`;
-      insightColor = 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
-      insightIcon = '🚨';
-    } else if (thisNonCashPct > 50 && trend > 10) {
-      insight = `Non-Tunai naik ${trend.toFixed(0)}% dari bulan lalu! Waspada kebocoran halus via e-wallet/QRIS.`;
-      insightColor = 'text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800';
-      insightIcon = '⚠️';
-    } else if (thisNonCashPct < 40) {
-      insight = `Pola sehat! ${thisNonCashPct.toFixed(0)}% Non-Tunai. Anda punya kontrol bagus atas pengeluaran digital.`;
-      insightColor = 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
-      insightIcon = '✨';
-    } else {
-      insight = `Rasio seimbang: ${thisNonCashPct.toFixed(0)}% Non-Tunai. Pertahankan!`;
-      insightColor = 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
-      insightIcon = '💡';
-    }
-    
-    return (
-      <div className={`mt-3 p-2.5 border rounded-lg ${insightColor}`}>
-        <p className="text-[11px] leading-relaxed">
-          <span className="font-bold">{insightIcon} FA Insight:</span> {insight}
-        </p>
-      </div>
-    );
-  })()}
+ {/* 💡 INSIGHT FA OTOMATIS (3 KATEGORI) */}
+{(() => {
+  if (paymentBarData.length < 2) return null;
+  
+  const thisMonth = paymentBarData[paymentBarData.length - 1];
+  const lastMonth = paymentBarData[paymentBarData.length - 2];
+  
+  const thisTotal = thisMonth.Tunai + thisMonth.QRIS + thisMonth.Transfer;
+  const lastTotal = lastMonth.Tunai + lastMonth.QRIS + lastMonth.Transfer;
+  
+  if (thisTotal === 0) return null;
+  
+  const thisDigitalPct = ((thisMonth.QRIS + thisMonth.Transfer) / thisTotal) * 100;
+  const lastDigitalPct = lastTotal > 0 ? ((lastMonth.QRIS + lastMonth.Transfer) / lastTotal) * 100 : 0;
+  const trend = thisDigitalPct - lastDigitalPct;
+  
+  let insight = '';
+  let insightColor = '';
+  let insightIcon = '';
+  
+  if (thisDigitalPct > 70) {
+    insight = `${thisDigitalPct.toFixed(0)}% pengeluaran via digital (QRIS + Transfer)! Sangat tinggi, pertimbangkan tarik tunai mingguan untuk kontrol lebih baik.`;
+    insightColor = 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
+    insightIcon = '🚨';
+  } else if (thisDigitalPct > 50 && trend > 10) {
+    insight = `Pengeluaran digital naik ${trend.toFixed(0)}% dari bulan lalu! Waspada kebocoran halus via e-wallet/QRIS/transfer.`;
+    insightColor = 'text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800';
+    insightIcon = '⚠️';
+  } else if (thisDigitalPct < 40) {
+    insight = `Pola sehat! ${thisDigitalPct.toFixed(0)}% digital. Anda punya kontrol bagus atas pengeluaran digital.`;
+    insightColor = 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
+    insightIcon = '✨';
+  } else {
+    insight = `Rasio seimbang: ${thisDigitalPct.toFixed(0)}% digital. Pertahankan!`;
+    insightColor = 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
+    insightIcon = '💡';
+  }
+  
+  return (
+    <div className={`mt-3 p-2.5 border rounded-lg ${insightColor}`}>
+      <p className="text-[11px] leading-relaxed">
+        <span className="font-bold">{insightIcon} FA Insight:</span> {insight}
+      </p>
+    </div>
+  );
+})()}
 </div>
 
                   {/* Calendar Heatmap */}
@@ -2832,24 +2887,82 @@ if (!user) return <AuthScreen />;
                              <p className={`text-sm font-bold ${r.type === 'income' ? 'text-green-500' : 'text-red-500'}`}>
                               {r.type === 'income' ? '+' : '-'}{formatCurrency(r.amount).replace('Rp', '').trim()}
                              </p>
-                             {/* Tombol Edit, View, Delete sudah ada dan benar di sini */}
-                             <div className="flex gap-1.5 mt-1 justify-end">
-                               <button onClick={() => handleEditRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
-                                 <Edit2 className="w-3.5 h-3.5 text-blue-500" />
-                               </button>
-                               <button onClick={() => handleViewRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
-                                 <Eye className="w-3.5 h-3.5 text-slate-500" />
-                               </button>
-                               <button onClick={async () => { 
-                                if (window.confirm(`⚠️ Hapus recurring "${r.name}"?\n\nTransaksi otomatis ini akan berhenti selamanya.`)) {
-                                  const ok = await deleteRecurring(r.id); 
-                                  if (ok) notify.success('Recurring berhasil dihapus 🗑️'); 
-                                }
-                              }}
-                                className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </button>
-                             </div>
+                             {/* ✅ TOMBOL BAYAR SEKARANG - MUNCUL JIKA JATUH TEMPO */}
+{(() => {
+  const daysLeft = differenceInDays(new Date(r.nextDate), new Date());
+  const isOverdue = daysLeft < 0;
+  const isDueToday = daysLeft === 0;
+  const isDueSoon = daysLeft >= 0 && daysLeft <= r.reminderDays;
+  
+  // Hanya tampilkan tombol bayar jika sudah waktunya
+  if (!isOverdue && !isDueToday && !isDueSoon) return null;
+  
+  return (
+    <button
+      onClick={() => handlePayRecurring(r)}
+      className={`w-full mt-2 py-2 rounded-lg text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 shadow-md ${
+        isOverdue 
+          ? 'bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-500/30 animate-pulse' 
+          : isDueToday
+          ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-orange-500/30'
+          : 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-green-500/30'
+      }`}
+    >
+      <span className="text-sm">{isOverdue ? '🚨' : isDueToday ? '⚡' : '💰'}</span>
+      <span>
+        {isOverdue 
+          ? `Bayar Sekarang (Terlewat ${Math.abs(daysLeft)} hari)` 
+          : isDueToday 
+          ? 'Bayar Hari Ini' 
+          : `Bayar Sekarang (${daysLeft} hari lagi)`}
+      </span>
+    </button>
+  );
+})()}
+
+{/* Info Status Jadwal */}
+{(() => {
+  const daysLeft = differenceInDays(new Date(r.nextDate), new Date());
+  if (daysLeft > recurringTransactions.find(x => x.id === r.id)?.reminderDays!) return null;
+  
+  const statusColor = daysLeft < 0 
+    ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20' 
+    : daysLeft === 0
+    ? 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20'
+    : 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20';
+  
+  return (
+    <div className={`mt-2 px-2 py-1.5 rounded-lg text-[10px] font-semibold ${statusColor} flex items-center gap-1`}>
+      <Bell className="w-3 h-3" />
+      <span>
+        {daysLeft < 0 
+          ? `⚠️ Terlewat ${Math.abs(daysLeft)} hari - Segera bayar!` 
+          : daysLeft === 0
+          ? '⚡ Jatuh tempo hari ini'
+          : `🔔 Jatuh tempo ${daysLeft} hari lagi`}
+      </span>
+    </div>
+  );
+})()}
+
+{/* Tombol Aksi (Edit, View, Delete) */}
+<div className="flex gap-1.5 mt-2 justify-end">
+  <button onClick={() => handleEditRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+    <Edit2 className="w-3.5 h-3.5 text-blue-500" />
+  </button>
+  <button onClick={() => handleViewRecurring(r)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+    <Eye className="w-3.5 h-3.5 text-slate-500" />
+  </button>
+  <button onClick={async () => { 
+    if (window.confirm(`⚠️ Hapus recurring "${r.name}"?\n\nTransaksi yang sudah tercatat TIDAK akan terhapus.`)) {
+      const ok = await deleteRecurring(r.id); 
+      if (ok) notify.success('Recurring berhasil dihapus 🗑️'); 
+    }
+  }}
+  className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
+    <Trash2 className="w-4 h-4 text-red-500" />
+  </button>
+</div>
                            </div>
                          </div>
                        </div>
