@@ -537,3 +537,16 @@ const deleteGoalContribution = async (id: string) => {
   refresh: fetchData,
 };
 }
+
+// ✅ TAMBAHKAN RETRY LOGIC
+const fetchDataWithRetry = async (retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await fetchData();
+      return; // Success
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+    }
+  }
+};

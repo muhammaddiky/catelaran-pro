@@ -1145,17 +1145,39 @@ const handleUpdateRecurring = async () => {
     return null;
   };
 
-  // ✅ TUNGGU AUTH DAN DATA SELESAI DIMUAT
+  // ✅ TAMBAHKAN INI: State untuk timeout
+const [loadTimeout, setLoadTimeout] = useState(false);
+
+ // ✅ EFFECT UNTUK TIMEOUT (Taruh setelah useEffect theme)
 useEffect(() => {
-  if (!authLoading && !dataLoading) {
-    // Beri jeda sedikit agar transisi mulus dan browser selesai render layout
-    const timer = setTimeout(() => setIsReady(true), 500);
+  if (authLoading || dataLoading) {
+    // Set timeout maksimal 5 detik
+    const timer = setTimeout(() => {
+      console.warn('⚠️ Loading timeout, forcing render...');
+      setLoadTimeout(true);
+    }, 5000);
+    
     return () => clearTimeout(timer);
+  } else {
+    setLoadTimeout(false);
   }
 }, [authLoading, dataLoading]);
 
+// ✅ DEBUG LOG (Taruh di dalam komponen utama)
+useEffect(() => {
+  console.log('📊 Loading States:', {
+    authLoading,
+    dataLoading,
+    isReady,
+    hasUser: !!user,
+    hasActiveBook: !!activeBook,
+    transactionCount: transactions.length,
+  });
+}, [authLoading, dataLoading, isReady, user, activeBook, transactions.length]);
+
   // ✅ SKELETON LOADING RINGAN UNTUK HP (NO ANIMATE-PULSE)
-const isLoading = authLoading || dataLoading;
+const isLoading = (authLoading || dataLoading) && !loadTimeout;
+
 if (isLoading) {
   return (
     <div className={`min-h-[100dvh] transition-colors ${isDark ? 'bg-slate-900' : 'bg-slate-50'} p-4 pb-28`}>
@@ -1191,6 +1213,12 @@ if (isLoading) {
       </div>
     </div>
   );
+}
+
+// ✅ TAMBAHKAN ERROR RECOVERY
+if (loadTimeout && (authLoading || dataLoading)) {
+  console.error('❌ Loading failed, showing app with partial data...');
+  // Tetap render aplikasi meskipun data belum lengkap
 }
 
 if (!user) return <AuthScreen />;
@@ -1753,72 +1781,82 @@ if (!user) return <AuthScreen />;
                  </button>
                </div>
 
-               {/* ✅ PANEL RINCIAN ITEM (COLLAPSIBLE) */}
-               {showItemDetails && (
-                 <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 space-y-2 border border-slate-200 dark:border-slate-600">
-                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Rincian Belanja</p>
-                   
-                   {transactionItems.map((item, idx) => (
-                     <div key={idx} className="flex gap-1.5 items-center">
-                       <input
-                         type="text"
-                         value={item.name}
-                         onChange={(e) => {
-                           const newItems = [...transactionItems];
-                           newItems[idx].name = e.target.value;
-                           setTransactionItems(newItems);
-                         }}
-                         placeholder="Nama item"
-                         className="flex-1 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600"
-                       />
-                       <input
-                         type="number"
-                         value={item.qty || ''}
-                         onChange={(e) => {
-                           const newItems = [...transactionItems];
-                           newItems[idx].qty = parseInt(e.target.value) || 0;
-                           setTransactionItems(newItems);
-                         }}
-                         placeholder="Qty"
-                         className="w-14 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-center"
-                       />
-                       <input
-                         type="text"
-                         value={item.price ? formatNominalDisplay(item.price.toString()) : ''}
-                         onChange={(e) => {
-                           const newItems = [...transactionItems];
-                           newItems[idx].price = parseNominal(e.target.value);
-                           setTransactionItems(newItems);
-                         }}
-                         placeholder="Harga"
-                         inputMode="numeric"
-                         className="w-24 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-right"
-                       />
-                       <button
-                         onClick={() => setTransactionItems(transactionItems.filter((_, i) => i !== idx))}
-                         className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg"
-                       >
-                         <X className="w-3 h-3 text-red-500" />
-                       </button>
-                     </div>
-                   ))}
+               {/* ✅ PANEL RINCIAN ITEM (COLLAPSIBLE) - RESPONSIVE */}
+{showItemDetails && (
+  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 space-y-2 border border-slate-200 dark:border-slate-600">
+    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Rincian Belanja</p>
+    
+    {transactionItems.map((item, idx) => (
+      <div key={idx} className="space-y-1.5">
+        {/* Row 1: Nama Item */}
+        <input
+          type="text"
+          value={item.name}
+          onChange={(e) => {
+            const newItems = [...transactionItems];
+            newItems[idx].name = e.target.value;
+            setTransactionItems(newItems);
+          }}
+          placeholder="Nama item (contoh: Nasi Padang)"
+          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600"
+        />
+        
+        {/* Row 2: Qty & Harga (Side by Side) */}
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <input
+              type="number"
+              value={item.qty || ''}
+              onChange={(e) => {
+                const newItems = [...transactionItems];
+                newItems[idx].qty = parseInt(e.target.value) || 1;
+                setTransactionItems(newItems);
+              }}
+              placeholder="Qty"
+              min="1"
+              className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-center"
+            />
+          </div>
+          <div className="flex-[2]">
+            <input
+              type="text"
+              value={item.price ? formatNominalDisplay(item.price.toString()) : ''}
+              onChange={(e) => {
+                const newItems = [...transactionItems];
+                newItems[idx].price = parseNominal(e.target.value);
+                setTransactionItems(newItems);
+              }}
+              placeholder="Harga"
+              inputMode="numeric"
+              className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 text-right"
+            />
+          </div>
+          <button
+            onClick={() => setTransactionItems(transactionItems.filter((_, i) => i !== idx))}
+            className="px-3 py-2 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 rounded-lg transition-colors flex items-center justify-center"
+          >
+            <X className="w-4 h-4 text-red-500" />
+          </button>
+        </div>
+      </div>
+    ))}
 
-                   <button
-                     type="button"
-                     onClick={() => setTransactionItems([...transactionItems, { name: '', qty: 1, price: 0 }])}
-                     className="w-full py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                   >
-                     + Tambah Item
-                   </button>
+    <button
+      type="button"
+      onClick={() => setTransactionItems([...transactionItems, { name: '', qty: 1, price: 0 }])}
+      className="w-full py-2.5 text-sm font-semibold text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors border border-dashed border-blue-300 dark:border-blue-700"
+    >
+      + Tambah Item
+    </button>
 
-                   {itemsTotal > 0 && (
-                     <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-600">
-                       <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Subtotal Rincian:</span>
-                       <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{formatCurrency(itemsTotal)}</span>
-                     </div>
-                   )}
-                 </div>
-               )}
+    {itemsTotal > 0 && (
+      <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2">
+        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Subtotal Rincian:</span>
+        <span className="text-sm font-extrabold text-blue-600 dark:text-blue-400">{formatCurrency(itemsTotal)}</span>
+      </div>
+    )}
+  </div>
+)}
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan</label>
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
