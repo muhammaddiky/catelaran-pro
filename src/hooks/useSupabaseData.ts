@@ -113,7 +113,7 @@ const fetchData = useCallback(async () => {
     setLoading(false);
     return;
   }
-
+  
   // Jika bukan mode keluarga DAN tidak ada activeBook, jangan fetch
   if (!isFamilyMode && !activeBook) {
     setLoading(false);
@@ -122,8 +122,8 @@ const fetchData = useCallback(async () => {
 
   setLoading(true);
   try {
-    // Bangun query dasar (tanpa filter book_id dulu)
-    let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false });
+    // ✅ PERBAIKAN: Gunakan .select('*') agar data tidak kosong, dan order by created_at
+    let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
     let bQuery = supabase.from('budgets').select('*').eq('user_id', user.id);
     let gQuery = supabase.from('financial_goals').select('*').eq('user_id', user.id);
     let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id);
@@ -150,20 +150,17 @@ const fetchData = useCallback(async () => {
     if (gRes.data) setGoals(gRes.data);
     if (rRes.data) setRecurring(rRes.data);
 
-    // Safety check: Jika data kosong padahal seharusnya ada, coba fetch ulang sekali
-  if (!isFamilyMode && activeBook && tRes.data?.length === 0) {
-    console.warn('⚠️ First load empty, retrying...');
-    await new Promise(r => setTimeout(r, 1000)); // Delay 1 detik
-    const retryRes = await supabase.from('transactions').select('*').eq('user_id', user.id).eq('book_id', activeBook.id);
-    if (retryRes.data) setTransactions(retryRes.data);
-  }
+    // Migrasi lokal storage hanya jika di mode normal (bukan family mode) dan data kosong
+    if (!isFamilyMode && activeBook && tRes.data?.length === 0) {
+      await migrateLocalStorage(user.id, activeBook);
+    }
   } catch (err) {
     console.error('❌ Fetch data exception:', err);
     toast.error('Gagal memuat data');
   } finally {
     setLoading(false); // ✅ Selalu dipanggil
   }
-}, [user, activeBook, isFamilyMode]); // ✅ Pastikan isFamilyMode ada di dependency array
+}, [user, activeBook, isFamilyMode]);
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
 useEffect(() => { 

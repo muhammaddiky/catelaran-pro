@@ -56,3 +56,16 @@ html {
     transform: translateY(0); 
   }
 }
+
+/* Khusus untuk iOS */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .category-dropdown {
+    max-height: 240px !important;
+    border-radius: 12px !important;
+  }
+  
+  .category-dropdown button {
+    padding: 10px 16px !important;
+    font-size: 15px !important;
+  }
+}

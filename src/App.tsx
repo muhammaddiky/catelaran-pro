@@ -181,6 +181,7 @@ export default function CatanKeuangan() {
   const [showIncome, setShowIncome] = useState(false);
   const [showSavings, setShowSavings] = useState(false);
   const [isFamilyMode, setIsFamilyMode] = useState(false);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   // ✅ STATE BARU: Rincian Item Transaksi
 const [transactionItems, setTransactionItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
 const [showItemDetails, setShowItemDetails] = useState(false);
@@ -381,25 +382,33 @@ const notifiedBudgetsRef = useRef<Set<string>>(new Set());
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // ========== RECURRING PROCESSOR (FIXED) ==========
+useEffect(() => {
+  if (recurringTransactions.length === 0) return;
   
-
-  // ========== RECURRING PROCESSOR ==========
-  useEffect(() => {
-    if (recurringTransactions.length === 0) return;
+  const processRecurring = async () => {
     const now = new Date();
-    const newTrans: Transaction[] = [];
-    const updated: RecurringTransaction[] = [];
-    recurringTransactions.forEach(r => {
-      if (!r.isActive) { updated.push(r); return; }
+    let processedCount = 0;
+    
+    for (const r of recurringTransactions) {
+      if (!r.isActive) continue;
+      
       const next = new Date(r.nextDate);
-      if (next <= now) {
-        newTrans.push({
-          id: Date.now().toString() + Math.random(),
+      if (next > now) continue; // Belum waktunya
+      
+      try {
+        // ✅ SIMPAN TRANSAKSI KE SUPABASE
+        await addTransaction({
           date: now.toISOString().split('T')[0],
-          type: r.type, category: r.category,
-          description: `Auto: ${r.name}`, amount: r.amount,
-          createdAt: now.toISOString(), recurringId: r.id,
+          type: r.type,
+          category: r.category,
+          description: `Auto: ${r.name}`,
+          amount: r.amount,
+          notes: `[recurring:${r.id}]`,
+          payment_method: 'cash',
         });
+        
+        // ✅ UPDATE NEXT DATE DI SUPABASE
         const n = new Date(next);
         switch (r.frequency) {
           case 'daily': n.setDate(n.getDate() + 1); break;
@@ -407,16 +416,26 @@ const notifiedBudgetsRef = useRef<Set<string>>(new Set());
           case 'monthly': n.setMonth(n.getMonth() + 1); break;
           case 'yearly': n.setFullYear(n.getFullYear() + 1); break;
         }
-        updated.push({ ...r, nextDate: n.toISOString().split('T')[0] });
-      } else updated.push(r);
-    });
-
-    if (newTrans.length > 0) {
-      setTransactions(prev => [...newTrans, ...prev]);
-      setRecurringTransactions(updated);
-      notify.success(`${newTrans.length} transaksi auto diproses`);
+        
+        await updateRecurring(r.id, {
+          next_date: n.toISOString().split('T')[0],
+        });
+        
+        processedCount++;
+      } catch (err) {
+        console.error(`Failed to process recurring ${r.name}:`, err);
+      }
     }
-  }, []);
+    
+    if (processedCount > 0) {
+      notify.success(`${processedCount} transaksi auto diproses`);
+      // ✅ Refresh data dari Supabase agar UI sinkron
+      if (refresh) await refresh();
+    }
+  };
+  
+  processRecurring();
+}, [recurringTransactions.length, addTransaction, updateRecurring, refresh]);
 
   /// ========== BUDGET ALERTS ==========
 useEffect(() => {
@@ -721,7 +740,17 @@ const paymentBarData = useMemo(() => {
     })
     
     .filter(t => !filterCategory || t.category === filterCategory)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    .sort((a, b) => {
+  // ✅ Urutkan berdasarkan waktu input (createdAt), bukan hanya tanggal transaksi
+  const timeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime();
+  const timeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime();
+  
+  // Jika waktu input berbeda, yang terbaru di atas
+  if (timeB !== timeA) return timeB - timeA;
+  
+  // Fallback: urutkan berdasarkan tanggal transaksi
+  return new Date(b.date).getTime() - new Date(a.date).getTime();
+});
     
 }, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books]); 
 // ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
@@ -1147,6 +1176,18 @@ const handleUpdateRecurring = async () => {
 
   // ✅ TAMBAHKAN INI: State untuk timeout
 const [loadTimeout, setLoadTimeout] = useState(false);
+
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.relative')) {
+      setIsCategoryDropdownOpen(false);
+    }
+  };
+
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
+}, []);
 
  // ✅ EFFECT UNTUK TIMEOUT (Taruh setelah useEffect theme)
 useEffect(() => {
@@ -1751,15 +1792,48 @@ if (!user) return <AuthScreen />;
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
                     <input type="date" value={formData.date} onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
-                      className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
+                      className="w-full min-w-0 bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Kategori</label>
-                    <select value={formData.category} onChange={e => setFormData(p => ({ ...p, category: e.target.value }))}
-                      className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500">
-                      {Object.entries(getCategories()).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
-                    </select>
-                  </div>
+                <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Kategori</label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                    className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 flex justify-between items-center"
+                  >
+                    {currentCategory ? (
+                      <span className="flex items-center gap-2">
+                        <span>{currentCategory.icon}</span>
+                        <span>{currentCategory.name}</span>
+                      </span>
+                    ) : (
+                      'Pilih kategori'
+                    )}
+                    <span className="text-slate-400">
+                      {isCategoryDropdownOpen ? '▲' : '▼'}
+                    </span>
+                  </button>
+                  
+                  {isCategoryDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+                      {Object.entries(getCategories()).map(([key, category]) => (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, category: key }));
+                            setIsCategoryDropdownOpen(false);
+                          }}
+                          className="w-full px-3 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+                        >
+                          <span>{category.icon}</span>
+                          <span>{category.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Deskripsi</label>
                     <input type="text" value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
