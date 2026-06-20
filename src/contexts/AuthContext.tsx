@@ -24,7 +24,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  // ✅ LANGSUNG FALSE, TIDAK PERLU WAIT
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Cek session awal
@@ -32,7 +33,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
+      
     });
 
     // Listen perubahan auth state
@@ -44,46 +45,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchProfile(session.user.id);
       } else {
         setProfile(null);
-        setLoading(false);
+        
       }
     });
+
+    // ✅ TAMBAHKAN: Persist session ke localStorage untuk mencegah logout otomatis
+if (session) {
+  localStorage.setItem('catelaran_session', JSON.stringify({
+    userId: session.user.id,
+    email: session.user.email,
+    timestamp: new Date().toISOString()
+  }));
+}
 
     return () => subscription.unsubscribe();
   }, []);
 
   const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      
-      if (!error && data) {
-        setProfile(data);
-      } else {
-        console.warn('Profile not found, creating...', error);
-        // Auto-create profile jika belum ada
-        const currentUser = supabase.auth.getUser().then(r => r.data.user);
-        const u = await currentUser;
-        if (u) {
-          await supabase.from('user_profiles').insert({
-            id: u.id,
-            full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'User',
-            email: u.email || ''
-          });
-          setProfile({
-            id: u.id,
-            full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'User',
-            email: u.email || ''
-          });
-        }
+  // ✅ CEK SESSION VALID SEBELUM FETCH PROFILE
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    console.warn('⚠️ Session tidak valid, clearing data...');
+    localStorage.removeItem('catelaran_session');
+    setProfile(null);
+    
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    if (!error && data) {
+      setProfile(data);
+    } else {
+      console.warn('Profile not found, creating...', error);
+      // Auto-create profile jika belum ada
+      const currentUser = supabase.auth.getUser().then(r => r.data.user);
+      const u = await currentUser;
+      if (u) {
+        await supabase.from('user_profiles').insert({
+          id: u.id,
+          full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'User',
+          email: u.email || ''
+        });
+        setProfile({
+          id: u.id,
+          full_name: u.user_metadata?.full_name || u.email?.split('@')[0] || 'User',
+          email: u.email || ''
+        });
       }
-    } catch (e) {
-      console.error('Fetch profile error:', e);
     }
-    setLoading(false);
-  };
+  } catch (e) {
+    console.error('Fetch profile error:', e);
+  }
+  
+};
 
   const signUp = async (email: string, password: string, fullName: string) => {
   try {

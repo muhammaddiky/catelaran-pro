@@ -122,11 +122,13 @@ const fetchData = useCallback(async () => {
 
   setLoading(true);
   try {
-    // ✅ PERBAIKAN: Gunakan .select('*') agar data tidak kosong, dan order by created_at
+
     let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
     let bQuery = supabase.from('budgets').select('*').eq('user_id', user.id);
     let gQuery = supabase.from('financial_goals').select('*').eq('user_id', user.id);
-    let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id);
+    let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id); // ✅ TAMBAHKAN INI
+
+// Jika BUKAN mode keluarga, baru filter berdasarkan activeBook
 
     // Jika BUKAN mode keluarga, baru filter berdasarkan activeBook
     if (!isFamilyMode && activeBook) {
@@ -293,12 +295,25 @@ useEffect(() => {
   return data;
 };
 
-  const deleteTransaction = async (id: string) => {
-    const { error } = await supabase.from('transactions').delete().eq('id', id);
-    if (error) { toast.error('Gagal hapus'); return false; }
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    return true;
-  };
+  // Di useSupabaseData.ts - deleteTransaction
+const deleteTransaction = async (id: string) => {
+  // ✅ Cek apakah transaksi terkait goal contribution
+  const transaction = transactions.find(t => t.id === id);
+  if (transaction) {
+    const refMatch = transaction.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
+    if (refMatch && refMatch[1]) {
+      // Hapus goal contribution (yang akan kurangi progress)
+      await deleteGoalContribution(refMatch[1]);
+      return true; // deleteGoalContribution sudah hapus transaksi
+    }
+  }
+  
+  // Hapus biasa
+  const { error } = await supabase.from('transactions').delete().eq('id', id);
+  if (error) { toast.error('Gagal hapus'); return false; }
+  setTransactions(prev => prev.filter(t => t.id !== id));
+  return true;
+};
 
   // ========== BUDGET CRUD ==========
   const addBudget = async (b: { category: string; limit_amount: number; period?: string }) => {
@@ -403,13 +418,8 @@ const addGoalContribution = async (contribution: {
   
   setGoalContributions(prev => [data, ...prev]);
   
-  // Update progress goal secara otomatis
-  if (targetGoal) {
-    const newAmount = (targetGoal.current_amount || 0) + contribution.amount;
-    await updateGoal(contribution.goal_id, {
-      current_amount: newAmount
-    });
-  }
+  // ✅ Gunakan RPC atomic untuk menghindari race condition
+await incrementGoalAmount(contribution.goal_id, contribution.amount);
   
   return data;
 };
@@ -438,15 +448,10 @@ const updateGoalContribution = async (id: string, updates: { amount?: number; da
   const newAmount = updates.amount ?? oldContribution.amount;
   const delta = newAmount - oldContribution.amount;
 
-  if (delta !== 0) {
-    const targetGoal = goals.find(g => g.id === oldContribution.goal_id);
-    if (targetGoal) {
-      const safeNewAmount = Math.max(0, targetGoal.current_amount + delta);
-      await updateGoal(oldContribution.goal_id, {
-        current_amount: safeNewAmount
-      });
-    }
-  }
+  // ✅ Gunakan RPC atomic untuk delta
+if (delta !== 0) {
+  await incrementGoalAmount(oldContribution.goal_id, delta);
+}
 
   return data;
 };
@@ -482,13 +487,8 @@ const deleteGoalContribution = async (id: string) => {
 
   setGoalContributions(prev => prev.filter(c => c.id !== id));
 
-  // Kurangi progress goal saat dihapus
-  const targetGoal = goals.find(g => g.id === contribution.goal_id);
-  if (targetGoal) {
-    await updateGoal(contribution.goal_id, {
-      current_amount: Math.max(0, targetGoal.current_amount - contribution.amount)
-    });
-  }
+  // ✅ Gunakan RPC atomic untuk pengurangan
+await incrementGoalAmount(contribution.goal_id, -contribution.amount);
 
   return true;
 };
@@ -523,6 +523,24 @@ const deleteGoalContribution = async (id: string) => {
     return true;
   };
 
+  // ========== ATOMIC GOAL INCREMENT ==========
+const incrementGoalAmount = async (goalId: string, delta: number) => {
+  const { error } = await supabase.rpc('increment_goal_amount', {
+    p_goal_id: goalId,
+    p_delta: delta,
+  });
+  
+  if (error) {
+    console.error('❌ RPC increment_goal_amount error:', error);
+    toast.error('Gagal update progress goal');
+    return false;
+  }
+  
+  // Refresh data lokal agar sinkron
+  await fetchData();
+  return true;
+};
+
     return {
   books, activeBook, transactions, budgets, goals, recurring, loading,
   switchBook, createBook, renameBook, deleteBook,
@@ -531,7 +549,7 @@ const deleteGoalContribution = async (id: string) => {
   addGoal, updateGoal, deleteGoal,
   addRecurring, updateRecurring, deleteRecurring,
   goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, // ✅ WAJIB ADA DI SINI
-  refresh: fetchData,
+  refresh: fetchData, incrementGoalAmount,
 };
 }
 

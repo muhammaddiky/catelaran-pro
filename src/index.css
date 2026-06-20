@@ -75,3 +75,14 @@ html {
   0% { transform: translateX(0); }
   100% { transform: translateX(-100%); }
 }
+
+/* Perbaiki touch target untuk mobile */
+button[type="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Pastikan tombol bisa diklik */
+.min-h-\[80px\] {
+  min-height: 80px;
+}

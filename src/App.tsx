@@ -18,6 +18,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { useSupabaseData } from './hooks/useSupabaseData';
 import { supabase } from './lib/supabase';
 import { SplashScreen } from './components/SplashScreen';
+import { addMonths } from 'date-fns'; // ✅ TAMBAHKAN IMPORT
 
 // ==================== TYPES ====================
 interface Transaction {
@@ -168,7 +169,18 @@ const categoryExamples: Record<string, string[]> = {
   cadangan: ['Dana darurat', 'Tabungan masa depan', 'Alokasi risiko'],
 };
 
+
 // ==================== UTILS ====================
+// ✅ HELPER: Parse tanggal string ke Date LOKAL (bukan UTC)
+// Mencegah bug timezone dimana "2024-01-01" jadi bulan sebelumnya di zona negatif
+const parseLocalDate = (dateStr: string): Date => {
+  if (!dateStr) return new Date();
+  // Tambahkan T00:00:00 agar di-parse sebagai waktu lokal, BUKAN UTC
+  const d = new Date(dateStr + 'T00:00:00');
+  // Fallback jika invalid
+  if (isNaN(d.getTime())) return new Date(dateStr);
+  return d;
+};
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0,
@@ -210,9 +222,16 @@ export default function CatanKeuangan() {
   const [showSavings, setShowSavings] = useState(false);
   const [isFamilyMode, setIsFamilyMode] = useState(false);
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [isHistoryCategoryDropdownOpen, setIsHistoryCategoryDropdownOpen] = useState(false);
+  const [isBudgetCategoryDropdownOpen, setIsBudgetCategoryDropdownOpen] = useState(false);
+  const [isRecurringCategoryDropdownOpen, setIsRecurringCategoryDropdownOpen] = useState(false);
+  const [isRecurringFrequencyDropdownOpen, setIsRecurringFrequencyDropdownOpen] = useState(false);
   // ✅ STATE BARU: Rincian Item Transaksi
 const [transactionItems, setTransactionItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
 const [showItemDetails, setShowItemDetails] = useState(false);
+// ✅ STATE UNTUK CHART READY (menghilangkan warning Recharts)
+const [chartReady, setChartReady] = useState(false);
+
 
 // ✅ HELPER: Parse items dari notes (ULTIMATE SAFE VERSION)
 const parseItemsFromNotes = (notes?: string | null): Array<{ name: string; qty: number; price: number }> => {
@@ -305,6 +324,7 @@ goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContri
 refresh// ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData(isFamilyMode);
 
+
 // Map Supabase data → App types
 const transactions: Transaction[] = rawTransactions.map(t => ({
   id: t.id, date: t.date, type: t.type, category: t.category,
@@ -333,6 +353,12 @@ const recurringTransactions: RecurringTransaction[] = rawRecurring.map(r => ({
   frequency: r.frequency, nextDate: r.next_date, reminderDays: r.reminder_days, isActive: r.is_active,
 }));
 
+// ✅ SAFETY: Pastikan array tidak undefined
+const safeTransactions = transactions || [];
+const safeBudgets = budgets || [];
+const safeGoals = goals || [];
+const safeRecurring = recurringTransactions || [];
+
 
 // State untuk Book Manager
 const [showBookManager, setShowBookManager] = useState(false);
@@ -345,7 +371,6 @@ const [editingBookName, setEditingBookName] = useState('');
   
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [activeMoreTab, setActiveMoreTab] = useState<MoreTab>('analisis');
-  const [transactionType, setTransactionType] = useState<'income' | 'expense'>('expense');
   const [periodFilter, setPeriodFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -401,25 +426,87 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
     nextDate: format(new Date(), 'yyyy-MM-dd'), reminderDays: 3,
   });
   const [showRecurringForm, setShowRecurringForm] = useState(false);
-// ✅ TARUH DI SINI: Ref untuk mencegah notifikasi budget spam & error
+
+  // ✅ REF UNTUK DROPDOWN KATEGORI
+const categoryDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ✅ TARUH DI SINI: Ref untuk mencegah notifikasi budget spam & error
 const notifiedBudgetsRef = useRef<Set<string>>(new Set());
-  // ========== THEME ==========
-  useEffect(() => {
-    if (theme === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+// ✅ STATE BARU: Month key untuk tracking bulan aktif (format: "2026-06")
+const [currentMonthKey, setCurrentMonthKey] = useState(() => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+});
+
+// ✅ AUTO-RESET NOTIFIKASI SAAT GANTI BULAN
+useEffect(() => {
+  const checkMonthChange = () => {
+    const now = new Date();
+    const newMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    if (newMonthKey !== currentMonthKey) {
+      console.log(`📅 Bulan berganti: ${currentMonthKey} → ${newMonthKey}, reset notifikasi budget`);
+      notifiedBudgetsRef.current.clear(); // 🔄 RESET SEMUA NOTIFIKASI
+      setCurrentMonthKey(newMonthKey);
+    }
+  };
+  
+  // Cek setiap menit (untuk kasus user buka app melewati tengah malam)
+  const interval = setInterval(checkMonthChange, 60000);
+  
+  // Cek juga saat window focus (user kembali ke app)
+  const handleFocus = () => checkMonthChange();
+  window.addEventListener('focus', handleFocus);
+  
+  return () => {
+    clearInterval(interval);
+    window.removeEventListener('focus', handleFocus);
+  };
+}, [currentMonthKey]);
 
  
-// ✅ FUNGSI BARU: BAYAR RECURRING MANUAL
+/// ========== THEME ==========
+useEffect(() => {
+  if (theme === 'dark') document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+  localStorage.setItem('theme', theme);
+}, [theme]);
+
+// ✅ EFFECT UNTUK CHART READY (delay 100ms agar container ter-render dulu)
+useEffect(() => {
+  const timer = setTimeout(() => setChartReady(true), 100);
+  return () => clearTimeout(timer);
+}, []);
+
+// ✅ CONSOLE LOG UNTUK DEBUG PAYMENT METHOD
+useEffect(() => {
+  console.log('💳 Payment Method berubah:', formData.payment_method);
+}, [formData.payment_method]);
+
+// ✅ AUTO-SAVE: Simpan state ke localStorage saat ada perubahan (DIPINDAHKAN KE ATAS)
+useEffect(() => {
+  const saveState = () => {
+    localStorage.setItem('catelaran_state', JSON.stringify({
+      activeBook: activeBook,
+      isFamilyMode: isFamilyMode,
+      theme: theme,
+      timestamp: new Date().toISOString()
+    }));
+  };
+  const timer = setTimeout(saveState, 1000);
+  return () => clearTimeout(timer);
+}, [activeBook, isFamilyMode, theme]);
+
+// ✅ MAIN RENDER - FIXED!
+// ✅ UBAH FUNGSI handlePayRecurring
 const handlePayRecurring = async (r: RecurringTransaction) => {
-  if (!window.confirm(`💰 Bayar "${r.name}" sebesar ${formatCurrency(r.amount)} sekarang?\n\nTransaksi akan tercatat & tanggal berikutnya otomatis ter-update.`)) {
+  if (!window.confirm(`💰 Bayar "${r.name}" sebesar ${formatCurrency(r.amount)} sekarang?`)) {
     return;
   }
   
   const now = new Date();
   
-  // ✅ LANGKAH 1: Catat transaksi ke database
+  // ✅ LANGKAH 1: Catat transaksi
   const result = await addTransaction({
     date: now.toISOString().split('T')[0],
     type: r.type,
@@ -427,38 +514,55 @@ const handlePayRecurring = async (r: RecurringTransaction) => {
     description: r.name,
     amount: r.amount,
     notes: `[recurring:${r.id}]`,
-    payment_method: 'cash', // Default tunai, bisa ditambahkan modal pilih metode nanti
+    payment_method: 'cash',
   });
   
   if (result) {
-    // ✅ LANGKAH 2: Update next_date recurring ke periode berikutnya
+    // ✅ LANGKAH 2: Update next_date dengan addMonths (handle end-of-month)
     const n = new Date(r.nextDate);
+    let nextDate: string;
+    
     switch (r.frequency) {
-      case 'daily': n.setDate(n.getDate() + 1); break;
-      case 'weekly': n.setDate(n.getDate() + 7); break;
-      case 'monthly': n.setMonth(n.getMonth() + 1); break;
-      case 'yearly': n.setFullYear(n.getFullYear() + 1); break;
+      case 'daily':
+        n.setDate(n.getDate() + 1);
+        nextDate = n.toISOString().split('T')[0];
+        break;
+      case 'weekly':
+        n.setDate(n.getDate() + 7);
+        nextDate = n.toISOString().split('T')[0];
+        break;
+      case 'monthly':
+        // ✅ PAKAI addMonths YANG HANDLE END-OF-MONTH
+        nextDate = format(addMonths(n, 1), 'yyyy-MM-dd');
+        break;
+      case 'yearly':
+        n.setFullYear(n.getFullYear() + 1);
+        nextDate = n.toISOString().split('T')[0];
+        break;
+      default:
+        nextDate = n.toISOString().split('T')[0];
     }
     
     await updateRecurring(r.id, {
-      next_date: n.toISOString().split('T')[0],
+      next_date: nextDate,
     });
     
     notify.success(`✅ "${r.name}" tercatat & jadwal diperbarui!`);
     
-    // ✅ LANGKAH 3: Refresh data agar UI sinkron
     if (refresh) await refresh();
   }
 };
 
-  /// ========== BUDGET ALERTS ==========
+  /// ========== BUDGET ALERTS (FIXED - 3 THRESHOLD + MONTHLY RESET) ==========
 useEffect(() => {
   if (budgets.length === 0) return;
+  
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-  const spending: Record<string, number> = {};
   
+  // Hitung spending per kategori untuk bulan ini
+  const spending: Record<string, number> = {};
   transactions.forEach(t => {
     const d = new Date(t.date);
     if (t.type === 'expense' && d >= monthStart && d <= monthEnd) {
@@ -470,31 +574,58 @@ useEffect(() => {
     const spent = spending[b.category] || 0;
     const pct = (spent / b.limit) * 100;
     const catName = expenseCategories[b.category]?.name || b.category;
-
-    // ✅ Gunakan Ref untuk tracking, bukan setBudgets yang error
-    if (pct >= 100 && !notifiedBudgetsRef.current.has(`${b.id}-100`)) {
-      notify.budget(catName, pct);
-      notifiedBudgetsRef.current.add(`${b.id}-100`);
-    } else if (pct >= 80 && pct < 100 && !notifiedBudgetsRef.current.has(`${b.id}-80`)) {
-      notify.budget(catName, pct);
-      notifiedBudgetsRef.current.add(`${b.id}-80`);
+    
+    // ✅ KEY UNIK: Sertakan monthKey agar notifikasi bisa muncul lagi di bulan berikutnya
+    const key100 = `${b.id}-${currentMonthKey}-100`;
+    const key80 = `${b.id}-${currentMonthKey}-80`;
+    const key50 = `${b.id}-${currentMonthKey}-50`;
+    
+    // ✅ THRESHOLD 100% - Prioritas tertinggi
+    if (pct >= 100 && !notifiedBudgetsRef.current.has(key100)) {
+      toast(`${catName} sudah ${pct.toFixed(0)}%! 🚨 Melebihi budget!`, {
+        duration: 5000,
+        icon: '🚨',
+        style: { background: '#dc2626', color: '#fff', fontSize: '14px' },
+      });
+      notifiedBudgetsRef.current.add(key100);
+      notifiedBudgetsRef.current.add(key80); // Jangan notif 80% lagi jika sudah 100%
+      notifiedBudgetsRef.current.add(key50); // Jangan notif 50% lagi
+    } 
+    // ✅ THRESHOLD 80% - Peringatan
+    else if (pct >= 80 && pct < 100 && !notifiedBudgetsRef.current.has(key80)) {
+      toast(`${catName} sudah ${pct.toFixed(0)}%! ⚠️ Hampir habis!`, {
+        duration: 4000,
+        icon: '⚠️',
+        style: { background: '#f59e0b', color: '#fff', fontSize: '14px' },
+      });
+      notifiedBudgetsRef.current.add(key80);
+      notifiedBudgetsRef.current.add(key50); // Jangan notif 50% lagi
+    }
+    // ✅ THRESHOLD 50% - Info awal (BARU!)
+    else if (pct >= 50 && pct < 80 && !notifiedBudgetsRef.current.has(key50)) {
+      toast(`${catName} sudah ${pct.toFixed(0)}% terpakai 💡`, {
+        duration: 3000,
+        icon: '💡',
+        style: { background: '#3b82f6', color: '#fff', fontSize: '14px' },
+      });
+      notifiedBudgetsRef.current.add(key50);
     }
   });
-}, [transactions, budgets]);
+}, [transactions, budgets, currentMonthKey]); // ✅ Tambahkan currentMonthKey sebagai dependency
 
   // ========== COMPUTED ==========
   const monthlyIncome = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      const d = new Date(t.date);
-      return t.type === 'income' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    const d = parseLocalDate(t.date);
+    return t.type === 'income' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).reduce((s, t) => s + t.amount, 0);
   }, [transactions]);
 
   const monthlyExpense = useMemo(() => {
     const now = new Date();
     return transactions.filter(t => {
-      const d = new Date(t.date);
+      const d = parseLocalDate(t.date);
       return t.type === 'expense' && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).reduce((s, t) => s + t.amount, 0);
   }, [transactions]);
@@ -512,9 +643,9 @@ const paymentSummary = useMemo(() => {
   let transferTotal = 0;
   
   transactions.forEach(t => {
-    if (t.type !== 'expense') return;
-    const d = new Date(t.date);
-    if (d < monthStart || d > monthEnd) return;
+  if (t.type !== 'expense') return;
+  const d = parseLocalDate(t.date);
+  if (d < monthStart || d > monthEnd) return;
     
     if (t.payment_method === 'qris') {
       qrisTotal += t.amount;
@@ -539,8 +670,8 @@ const paymentSummary = useMemo(() => {
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
     const s: Record<string, number> = {};
     transactions.forEach(t => {
-      const d = new Date(t.date);
-      if (t.type === 'expense' && d >= start && d <= end) s[t.category] = (s[t.category] || 0) + t.amount;
+    const d = parseLocalDate(t.date);
+    if (t.type === 'expense' && d >= start && d <= end) s[t.category] = (s[t.category] || 0) + t.amount;
     });
     return s;
   }, [transactions]);
@@ -565,9 +696,9 @@ const paymentSummary = useMemo(() => {
       m[k] = { income: 0, expense: 0 };
     }
     transactions.forEach(t => {
-      const d = new Date(t.date);
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (m[k]) { if (t.type === 'income') m[k].income += t.amount; else m[k].expense += t.amount; }
+    const d = parseLocalDate(t.date);
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (m[k]) { if (t.type === 'income') m[k].income += t.amount; else m[k].expense += t.amount; }
     });
     return Object.entries(m).map(([k, v]) => ({
       name: format(new Date(k + '-01'), 'MMM', { locale: id }),
@@ -590,7 +721,7 @@ const paymentBarData = useMemo(() => {
   // Isi data dari transaksi pengeluaran
   transactions.forEach(t => {
     if (t.type !== 'expense') return;
-    const d = new Date(t.date);
+    const d = parseLocalDate(t.date);
     const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     if (m[k]) {
       if (t.payment_method === 'qris') {
@@ -636,16 +767,37 @@ const paymentBarData = useMemo(() => {
   };
 
   const syncToSheets = async (t: Transaction) => {
-    if (!scriptUrl) return false;
-    try {
-      await fetch(scriptUrl, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: t.date, type: t.type, category: t.category, description: t.description, amount: t.amount, notes: t.notes || '' }),
-      });
+  if (!scriptUrl) return false;
+  try {
+    const response = await fetch(scriptUrl, {
+      method: 'POST',
+      // ✅ HAPUS mode: 'no-cors' - Apps Script mendukung CORS
+      headers: { 
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        date: t.date, 
+        type: t.type, 
+        category: t.category, 
+        description: t.description, 
+        amount: t.amount, 
+        notes: t.notes || '' 
+      }),
+    });
+    
+    // ✅ VERIFIKASI response
+    if (response.ok) {
+      console.log('✅ Synced to Google Sheets');
       return true;
-    } catch { return false; }
-  };
+    } else {
+      console.error('❌ Sync failed:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Sync error:', error);
+    return false;
+  }
+};
 
   const handleAddTransaction = async () => {
   if (!formData.description || !formData.amount) { notify.error('Deskripsi & nominal wajib diisi!'); return; }
@@ -675,10 +827,35 @@ const paymentBarData = useMemo(() => {
     setActiveTab('history');
 };
 
-  const handleDelete = async (id: string) => {
-  if (window.confirm('⚠️ Hapus transaksi ini?\n\nData tidak dapat dikembalikan.')) {
-    const ok = await deleteTransaction(id);
-    if (ok) notify.success('Transaksi berhasil dihapus 🗑️');
+ const handleDelete = async (id: string) => {
+  if (!window.confirm('⚠️ Hapus transaksi ini?\n\nData tidak dapat dikembalikan.')) return;
+  
+  // ✅ LANGKAH 1: Cari transaksi yang akan dihapus untuk cek apakah terkait Goal
+  const transactionToDelete = transactions.find(t => t.id === id);
+  
+  if (transactionToDelete) {
+    // ✅ LANGKAH 2: Cek apakah transaksi ini adalah "Tabungan Goal" dengan tag [ref:xxx]
+    const refMatch = transactionToDelete.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
+    
+    if (refMatch && refMatch[1]) {
+      const contributionId = refMatch[1];
+      
+      // ✅ LANGKAH 3: Hapus goal contribution terkait (ini akan otomatis kurangi current_amount)
+      const contribDeleted = await deleteGoalContribution(contributionId);
+      
+      if (contribDeleted) {
+        notify.success('Transaksi & riwayat tabungan Goal berhasil dihapus 🗑️');
+        // ✅ Refresh agar progress bar langsung update
+        if (refresh) await refresh();
+        return; // Keluar karena deleteGoalContribution sudah hapus transaksi juga
+      }
+    }
+  }
+  
+  // ✅ LANGKAH 4: Jika bukan transaksi Goal, hapus seperti biasa
+  const ok = await deleteTransaction(id);
+  if (ok) {
+    notify.success('Transaksi berhasil dihapus 🗑️');
   }
 };
 
@@ -744,10 +921,10 @@ const paymentBarData = useMemo(() => {
       endDate = null;
   }
   
-  return transactions
-.filter(t => t != null) // ✅ SAFETY: Buang data null/rusak agar tidak crash
-.filter(t => {
-  const d = new Date(t.date);
+      return transactions
+    .filter(t => t != null) // ✅ SAFETY: Buang data null/rusak agar tidak crash
+    .filter(t => {
+  const d = parseLocalDate(t.date);
       if (startDate && d < startDate) return false;
       if (endDate && d > endDate) return false;
       return true;
@@ -778,8 +955,8 @@ const paymentBarData = useMemo(() => {
 // ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
   
 
-  const getCategories = () => transactionType === 'income' ? incomeCategories : expenseCategories;
-  const currentCategory = getCategories()[formData.category];
+  const getCategories = () => formData.type === 'income' ? incomeCategories : expenseCategories;
+  const currentCategory = getCategories()[formData.category] || expenseCategories['makanan'];
 // ✅ JOIN SEMUA CONTOH DESKRIPSI DENGAN KOMA
 const currentExamples = categoryExamples[formData.category]?.join(', ') || '';
   const handleAddBudget = async () => {
@@ -838,9 +1015,9 @@ const handleUpdateBudget = async () => {
   const handleAddGoal = async () => {
   if (!goalForm.name || !goalForm.targetAmount) { notify.error('Nama & target wajib'); return; }
   const result = await addGoal({
-    name: goalForm.name, icon: goalForm.icon, target_amount: parseInt(goalForm.targetAmount),
+    name: goalForm.name, icon: goalForm.icon, target_amount: parseNominal(goalForm.targetAmount),
     deadline: goalForm.deadline || undefined,
-    monthly_contribution: goalForm.monthlyContribution ? parseInt(goalForm.monthlyContribution) : undefined,
+    monthly_contribution: goalForm.monthlyContribution ? parseNominal(goalForm.monthlyContribution) : undefined,
   });
   if (result) {
     notify.success('Goal ditambahkan!');
@@ -898,8 +1075,15 @@ const findLinkedTransaction = (contributionId: string, amount: number, dateStr: 
 };
 
 const handleAddFundsToGoal = async () => {
+  // ✅ VALIDASI WAJIB
   if (!fundingGoalId || !fundingAmount) {
     notify.error('Nominal wajib diisi');
+    return;
+  }
+  
+  // ✅ VALIDASI TANGGAL & JAM
+  if (!fundingDate || !fundingTime) {
+    notify.error('Tanggal & jam wajib diisi');
     return;
   }
   
@@ -908,8 +1092,8 @@ const handleAddFundsToGoal = async () => {
     notify.error('Nominal tidak valid');
     return;
   }
-
-  // ✅ FIX 1: Gabungkan Tanggal + Waktu agar jam akurat (bukan 07:00)
+  
+  // ✅ GABUNGKAN TANGGAL + WAKTU (AMAN KARENA SUDAH DIVALIDASI)
   const dateTimeStr = new Date(`${fundingDate}T${fundingTime}:00`).toISOString();
 
   // ✅ FIX 2: Simpan ke riwayat kontribusi dulu
@@ -921,13 +1105,7 @@ const handleAddFundsToGoal = async () => {
   });
 
   if (result) {
-    // ✅ FIX 3: Update progress goal secara manual agar sinkron
-    const goal = goals.find(g => g.id === fundingGoalId);
-    if (goal) {
-      await updateGoal(fundingGoalId, { 
-        current_amount: (goal.currentAmount || 0) + amount 
-      });
-    }
+    
 
     // Opsional: Catat sebagai transaksi pengeluaran jika dicentang
 if (fundingAsExpense) {
@@ -946,7 +1124,9 @@ if (fundingAsExpense) {
   notify.success(`+${formatCurrency(amount)} ditambahkan ke ${goals.find(g => g.id === fundingGoalId)?.name} 🎉`);
 }
 
-    // Reset Form
+    // ✅ Refresh data agar progress bar & riwayat langsung sinkron
+    if (refresh) await refresh();
+// Reset Form
     setFundingGoalId(null);
     setFundingAmount('');
     setFundingDate(format(new Date(), 'yyyy-MM-dd'));
@@ -957,21 +1137,30 @@ if (fundingAsExpense) {
 };
 
 const handleUpdateContribution = async () => {
-    if (!editingContributionId || !editingContributionAmount) {
-        notify.error('Nominal wajib diisi');
-        return;
-    }
-    const amount = parseNominal(editingContributionAmount);
-    if (amount <= 0) {
-        notify.error('Nominal tidak valid');
-        return;
-    }
+  // ✅ VALIDASI WAJIB
+  if (!editingContributionId || !editingContributionAmount) {
+    notify.error('Nominal wajib diisi');
+    return;
+  }
+  
+  // ✅ VALIDASI TANGGAL & JAM
+  if (!editingContributionDate || !editingContributionTime) {
+    notify.error('Tanggal & jam wajib diisi');
+    return;
+  }
+  
+  const amount = parseNominal(editingContributionAmount);
+  if (amount <= 0) {
+    notify.error('Nominal tidak valid');
+    return;
+  }
+  
+  const oldContribution = goalContributions.find(c => c.id === editingContributionId);
+  
+  // ✅ GABUNGKAN TANGGAL + WAKTU (AMAN KARENA SUDAH DIVALIDASI)
+  const dateTimeStr = new Date(`${editingContributionDate}T${editingContributionTime}:00`).toISOString();
     
-    // Ambil data lama sebelum diupdate untuk keperluan pencarian transaksi
-    const oldContribution = goalContributions.find(c => c.id === editingContributionId);
     
-    // Gabungkan tanggal + waktu menjadi format ISOString yang benar
-    const dateTimeStr = new Date(`${editingContributionDate}T${editingContributionTime}:00`).toISOString();
     const result = await updateGoalContribution(editingContributionId, {
         amount,
         date: dateTimeStr,
@@ -1014,7 +1203,7 @@ const handleUpdateContribution = async () => {
   const handleAddRecurring = async () => {
   if (!recurringForm.name || !recurringForm.amount) { notify.error('Nama & nominal wajib'); return; }
   const result = await addRecurring({
-    name: recurringForm.name, amount: parseInt(recurringForm.amount),
+    name: recurringForm.name, amount: parseNominal(recurringForm.amount),
     type: recurringForm.type, category: recurringForm.category,
     frequency: recurringForm.frequency, next_date: recurringForm.nextDate,
     reminder_days: recurringForm.reminderDays, is_active: true,
@@ -1052,7 +1241,7 @@ const handleUpdateRecurring = async () => {
     }
     const result = await updateRecurring(editingRecurring.id, {
       name: recurringForm.name,
-      amount: parseInt(recurringForm.amount),
+      amount: parseNominal(recurringForm.amount),
       type: recurringForm.type,
       category: recurringForm.category,
       frequency: recurringForm.frequency,
@@ -1073,13 +1262,25 @@ const handleUpdateRecurring = async () => {
   }
 };
 
-  const handleExport = () => {
-    const data = { transactions, budgets, goals, recurringTransactions, exportDate: new Date().toISOString() };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `catat-keuangan-${Date.now()}.json`; a.click();
-    notify.success('Data diexport');
+ const handleExport = () => {
+  const data = { 
+    books,                                    // ✅ DAFTAR BUKU
+    transactions, 
+    budgets, 
+    goals, 
+    recurringTransactions, 
+    goalContributions,                        // ✅ RIWAYAT TABUNGAN GOAL
+    exportDate: new Date().toISOString(),
+    appVersion: '1.0.0',                      // ✅ UNTUK KOMPATIBILITAS KE DEPAN
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; 
+  a.download = `catat-keuangan-backup-${new Date().toISOString().split('T')[0]}.json`; 
+  a.click();
+  URL.revokeObjectURL(url);                   // ✅ CLEANUP MEMORY
+  notify.success('✅ Backup lengkap berhasil di-download!');
   };
 
   const handleClearAll = async () => {
@@ -1087,22 +1288,31 @@ const handleUpdateRecurring = async () => {
     notify.error('Pilih buku terlebih dahulu!');
     return;
   }
-
+  
+  // ✅ VALIDASI: Cek apakah buku ini milik user di mode keluarga
+  if (isFamilyMode) {
+    const isOwner = books.find(b => b.id === activeBook.id)?.user_id === user?.id;
+    if (!isOwner) {
+      notify.error('Anda tidak memiliki izin untuk menghapus buku ini!');
+      return;
+    }
+  }
+  
   if (window.confirm(`⚠️ Yakin hapus SEMUA TRANSAKSI di buku "${activeBook.name}"?\n\n(Buku lain & data Goals/Budget/Auto akan tetap aman).`)) {
     try {
-      // HANYA menghapus transaksi yang book_id-nya sama dengan buku yang sedang aktif
+      // ✅ GUNAKAN METHOD DARI HOOK (bukan direct supabase call)
       const { error } = await supabase
         .from('transactions')
         .delete()
         .eq('book_id', activeBook.id);
-
+      
       if (error) {
         console.error('Supabase Delete Error:', error);
         notify.error('Gagal menghapus. Pastikan RLS Delete Policy untuk transactions sudah aktif.');
       } else {
         notify.success(`Transaksi di "${activeBook.name}" berhasil dibersihkan! 🗑️`);
-        // Reload halaman agar state UI dan cache benar-benar fresh dari database
-        setTimeout(() => window.location.reload(), 1500);
+        // ✅ REFRESH DATA tanpa reload halaman
+        if (refresh) await refresh();
       }
     } catch (error) {
       console.error('System Error:', error);
@@ -1196,35 +1406,23 @@ const handleUpdateRecurring = async () => {
     return null;
   };
 
-  // ✅ TAMBAHKAN INI: State untuk timeout
-const [loadTimeout, setLoadTimeout] = useState(false);
 
 useEffect(() => {
   const handleClickOutside = (event: MouseEvent) => {
     const target = event.target as HTMLElement;
     if (!target.closest('.relative')) {
       setIsCategoryDropdownOpen(false);
+      setIsHistoryCategoryDropdownOpen(false); // ✅ Tutup dropdown history juga
+      setIsBudgetCategoryDropdownOpen(false); // ✅ TAMBAHKAN
+      setIsRecurringCategoryDropdownOpen(false); // ✅ TAMBAHKAN
+      setIsRecurringFrequencyDropdownOpen(false); // ✅ TAMBAHKAN
     }
   };
-
   document.addEventListener('mousedown', handleClickOutside);
   return () => document.removeEventListener('mousedown', handleClickOutside);
 }, []);
 
- // ✅ EFFECT UNTUK TIMEOUT (Taruh setelah useEffect theme)
-useEffect(() => {
-  if (authLoading || dataLoading) {
-    // Set timeout maksimal 5 detik
-    const timer = setTimeout(() => {
-      console.warn('⚠️ Loading timeout, forcing render...');
-      setLoadTimeout(true);
-    }, 5000);
-    
-    return () => clearTimeout(timer);
-  } else {
-    setLoadTimeout(false);
-  }
-}, [authLoading, dataLoading]);
+
 
 // ✅ DEBUG LOG (Taruh di dalam komponen utama)
 useEffect(() => {
@@ -1238,53 +1436,11 @@ useEffect(() => {
   });
 }, [authLoading, dataLoading, isReady, user, activeBook, transactions.length]);
 
-  // ✅ SKELETON LOADING RINGAN UNTUK HP (NO ANIMATE-PULSE)
-const isLoading = (authLoading || dataLoading) && !loadTimeout;
 
-if (isLoading) {
-  return (
-    <div className={`min-h-[100dvh] transition-colors ${isDark ? 'bg-slate-900' : 'bg-slate-50'} p-4 pb-28`}>
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6 max-w-4xl mx-auto">
-        <div className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.1s_forwards]`} />
-          <div className={`h-5 w-28 rounded-md ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.15s_forwards]`} />
-        </div>
-        <div className="flex gap-2">
-          <div className={`w-9 h-9 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.2s_forwards]`} />
-          <div className={`w-9 h-9 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.25s_forwards]`} />
-        </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto space-y-4">
-        {/* GREETING BANNER */}
-        <div className={`h-20 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.3s_forwards]`} />
-
-        {/* GRID KARTU */}
-        <div className="grid grid-cols-2 gap-3">
-          {[0.35, 0.4, 0.45, 0.5].map((delay, i) => (
-            <div key={i} className={`h-24 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0`} style={{ animation: `fadeIn 0.4s ease-out ${delay}s forwards` }} />
-          ))}
-        </div>
-
-        {/* CHART PLACEHOLDER */}
-        <div className={`h-64 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.55s_forwards]`} />
-
-        {/* LIST PLACEHOLDER */}
-        <div className={`h-16 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.6s_forwards]`} />
-        <div className={`h-16 w-full rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-200'} opacity-0 animate-[fadeIn_0.4s_ease-out_0.65s_forwards]`} />
-      </div>
-    </div>
-  );
-}
-
-// ✅ TAMBAHKAN ERROR RECOVERY
-if (loadTimeout && (authLoading || dataLoading)) {
-  console.error('❌ Loading failed, showing app with partial data...');
-  // Tetap render aplikasi meskipun data belum lengkap
-}
-
-if (!user) return <AuthScreen />;
+// ✅ LANGSUNG RENDER APLIKASI, TAMPILKAN AUTHSCREEN JIKA BELUM LOGIN
+// Tidak ada delay, tidak ada skeleton
+if (!user && !authLoading) return <AuthScreen />;
 
   // ✅ MAIN RENDER - FIXED!
   return (
@@ -1688,7 +1844,7 @@ if (!user) return <AuthScreen />;
               <div className="flex flex-col sm:flex-row items-center gap-6">
                 {/* Bagian Kiri: Donut Chart */}
                 <div className="relative w-40 h-40 flex-shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={150} minHeight={150}>
                     <RePieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <Pie 
                         data={pieData} 
@@ -1718,7 +1874,7 @@ if (!user) return <AuthScreen />;
 
                 {/* Bagian Kanan: List Detail */}
                 <div className="flex-1 w-full space-y-3">
-                  {pieData.sort((a, b) => b.value - a.value).map((entry, index) => {
+                  {pieData.toSorted((a, b) => b.value - a.value).map((entry, index) => {
                     const total = pieData.reduce((sum, d) => sum + d.value, 0);
                     const pct = total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0;
                     
@@ -1754,7 +1910,7 @@ if (!user) return <AuthScreen />;
 
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
                 <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white">📈 6 Bulan Terakhir</h3>
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={200} minWidth={200}>
                   <BarChart data={barData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: isDark ? '#94a3b8' : '#64748b' }} tickLine={false} />
@@ -1814,14 +1970,14 @@ if (!user) return <AuthScreen />;
                 <h2 className="text-lg font-bold mb-4 text-slate-900 dark:text-white">{editingId ? '✏️ Edit' : '➕ Tambah'} Transaksi</h2>
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   <button
-                    onClick={() => { setTransactionType('expense'); setFormData(p => ({ ...p, type: 'expense', category: 'makanan' })); }}
-                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${transactionType === 'expense' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
+                    onClick={() => { setFormData('expense'); setFormData(p => ({ ...p, type: 'expense', category: 'makanan' })); }}
+                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'expense' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
                   >
                     💸 Pengeluaran
                   </button>
                   <button
-                    onClick={() => { setTransactionType('income'); setFormData(p => ({ ...p, type: 'income', category: 'gaji' })); }}
-                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${transactionType === 'income' ? 'bg-green-500 text-white shadow-lg shadow-green-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
+                    onClick={() => { setFormData('income'); setFormData(p => ({ ...p, type: 'income', category: 'gaji' })); }}
+                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'income' ? 'bg-green-500 text-white shadow-lg shadow-green-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
                   >
                     💰 Pemasukan
                   </button>
@@ -1835,7 +1991,7 @@ if (!user) return <AuthScreen />;
                   </div>
                   <div>
                 <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Kategori</label>
-                <div className="relative">
+                <div className="relative" ref={categoryDropdownRef}>
                   <button
                     type="button"
                     onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
@@ -1975,38 +2131,56 @@ if (!user) return <AuthScreen />;
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
                       className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 h-20 resize-none" />
                   </div>
-                  {/* ✅ METODE PEMBAYARAN - 3 KATEGORI SCROLLABLE */}
-              <div>
-                <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Pilih Metode Bayar</label>
-                <div className="overflow-x-auto pb-2 -mx-1 px-1">
-                  <div className="flex gap-2 min-w-max">
-                    {Object.entries(paymentMethods).map(([key, pm]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setFormData(p => ({ ...p, payment_method: key }))}
-                        className={`flex-none px-4 py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                          formData.payment_method === key 
-                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 
-                            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        <span className="text-base">{pm.icon}</span>
-                        <span>{pm.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Deskripsi metode yang dipilih */}
-                {paymentMethods[formData.payment_method]?.description && (
-                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    {paymentMethods[formData.payment_method].description}
-                  </p>
-                )}
-              </div>
+                 
+                 {/* ✅ METODE PEMBAYARAN - DIPERBAIKI */}
+<div className="space-y-2">
+  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+    Pilih Metode Bayar
+  </label>
+  
+  <div className="grid grid-cols-3 gap-2">
+    {Object.entries(paymentMethods).map(([key, pm]) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => {
+          console.log('Payment method selected:', key);
+          setFormData(p => ({ ...p, payment_method: key }));
+        }}
+        className={`
+          relative px-3 py-3 rounded-xl font-semibold text-sm 
+          transition-all duration-200 
+          flex flex-col items-center justify-center gap-1
+          min-h-[80px]
+          ${formData.payment_method === key
+            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30 scale-105'
+            : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+          }
+          active:scale-95
+          cursor-pointer
+          touch-manipulation
+        `}
+        style={{ 
+          WebkitTapHighlightColor: 'transparent',
+          zIndex: formData.payment_method === key ? 10 : 1
+        }}
+      >
+        <span className="text-2xl">{pm.icon}</span>
+        <span className="text-xs text-center leading-tight">{pm.name}</span>
+      </button>
+    ))}
+  </div>
+  
+  {/* Deskripsi metode yang dipilih */}
+  {paymentMethods[formData.payment_method]?.description && (
+    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 px-1">
+      {paymentMethods[formData.payment_method].description}
+    </p>
+  )}
+</div>
+
                   <button onClick={handleAddTransaction}
-                    className={`w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all active:scale-95 shadow-lg ${transactionType === 'income' ? 'bg-green-500 shadow-green-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
+                    className={`w-full py-3.5 rounded-xl font-bold text-sm text-white transition-all active:scale-95 shadow-lg ${formData.type === 'income' ? 'bg-green-500 shadow-green-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
                     {editingId ? '✏️ Update' : '➕ Simpan'} Transaksi
                   </button>
                   {editingId && (
@@ -2058,16 +2232,90 @@ if (!user) return <AuthScreen />;
                   </div>
                 )}
               </div>
-              <select
-                value={filterCategory}
-                onChange={e => setFilterCategory(e.target.value)}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Semua Kategori</option>
-                {Object.entries({ ...incomeCategories, ...expenseCategories }).map(([k, c]) => (
-                  <option key={k} value={k}>{c.icon} {c.name}</option>
-                ))}
-              </select>
+              {/* ✅ CUSTOM DROPDOWN KATEGORI - HISTORY (SAMA SEPERTI TAB INPUT) */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setIsHistoryCategoryDropdownOpen(!isHistoryCategoryDropdownOpen)}
+    className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 flex justify-between items-center"
+  >
+    {filterCategory ? (
+      <span className="flex items-center gap-2">
+        <span>{({ ...incomeCategories, ...expenseCategories }[filterCategory])?.icon || '📋'}</span>
+        <span>{({ ...incomeCategories, ...expenseCategories }[filterCategory])?.name || 'Semua Kategori'}</span>
+      </span>
+    ) : (
+      <span className="text-slate-500 dark:text-slate-400">Semua Kategori</span>
+    )}
+    <span className="text-slate-400">
+      {isHistoryCategoryDropdownOpen ? '▲' : '▼'}
+    </span>
+  </button>
+
+  {isHistoryCategoryDropdownOpen && (
+    <div className="absolute z-20 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+      {/* Opsi: Semua Kategori */}
+      <button
+        onClick={() => {
+          setFilterCategory('');
+          setIsHistoryCategoryDropdownOpen(false);
+        }}
+        className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+          !filterCategory 
+            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold' 
+            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+        }`}
+      >
+        <span>📋</span>
+        <span>Semua Kategori</span>
+      </button>
+
+      {/* Kategori Pemasukan */}
+      <div className="px-3 py-1.5 text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-t border-slate-100 dark:border-slate-700">
+        💰 PEMASUKAN
+      </div>
+      {Object.entries(incomeCategories).map(([key, cat]) => (
+        <button
+          key={key}
+          onClick={() => {
+            setFilterCategory(key);
+            setIsHistoryCategoryDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+            filterCategory === key 
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold' 
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span>{cat.icon}</span>
+          <span>{cat.name}</span>
+        </button>
+      ))}
+
+      {/* Kategori Pengeluaran */}
+      <div className="px-3 py-1.5 text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-t border-slate-100 dark:border-slate-700">
+        💸 PENGELUARAN
+      </div>
+      {Object.entries(expenseCategories).map(([key, cat]) => (
+        <button
+          key={key}
+          onClick={() => {
+            setFilterCategory(key);
+            setIsHistoryCategoryDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+            filterCategory === key 
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold' 
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span>{cat.icon}</span>
+          <span>{cat.name}</span>
+        </button>
+      ))}
+    </div>
+  )}
+</div>
               
               {/* ✅ FILTER BUKU (HANYA MUNCUL SAAT MODE KELUARGA) */}
 {isFamilyMode && books.length > 0 && (
@@ -2146,7 +2394,7 @@ if (!user) return <AuthScreen />;
           <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">{cat?.name || 'Transaksi'}</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{t.description}</p>
           <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-            {format(new Date(t.date), 'dd MMM yyyy', { locale: id })}
+            {format(parseLocalDate(t.date), 'dd MMM yyyy', { locale: id })}
           </p>
 
           {/* ✅ BADGE METODE PEMBAYARAN (DENGAN OPTIONAL CHAINING) */}
@@ -2221,7 +2469,7 @@ if (!user) return <AuthScreen />;
                       : 50;
                     const thirtyDaysAgo = new Date();
                     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                    const activeDays = new Set(transactions.filter(t => new Date(t.date) >= thirtyDaysAgo).map(t => t.date)).size;
+                    const activeDays = new Set(transactions.filter(t => parseLocalDate(t.date) >= thirtyDaysAgo).map(t => t.date)).size;
                     const consistencyScore = (activeDays / 30) * 100;
                     const score = Math.min(100, Math.round(savingsRate * 0.4 + budgetCompliance * 0.35 + consistencyScore * 0.25));
                     const getScoreInfo = (s: number) => {
@@ -2290,8 +2538,8 @@ if (!user) return <AuthScreen />;
                       const month = date.getMonth();
                       const year = date.getFullYear();
                       const monthTrans = transactions.filter(t => {
-                        const d = new Date(t.date);
-                        return d.getMonth() === month && d.getFullYear() === year;
+                      const d = parseLocalDate(t.date);
+                      return d.getMonth() === month && d.getFullYear() === year;
                       });
                       return {
                         income: monthTrans.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0),
@@ -2352,7 +2600,7 @@ if (!user) return <AuthScreen />;
   <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
     💳 Tren Metode Bayar (6 Bulan)
   </h3>
-  <ResponsiveContainer width="100%" height={200}>
+  <ResponsiveContainer width="100%" height={200} minWidth={200}>
     <BarChart data={paymentBarData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
       <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
       <XAxis 
@@ -2465,7 +2713,7 @@ if (!user) return <AuthScreen />;
                     const dayTotals = [0, 0, 0, 0, 0, 0, 0];
                     const dayCounts = [0, 0, 0, 0, 0, 0, 0];
                     transactions.filter(t => t.type === 'expense').forEach(t => {
-                      const day = new Date(t.date).getDay();
+                      const day = parseLocalDate(t.date).getDay();
                       dayTotals[day] += t.amount;
                       dayCounts[day]++;
                     });
@@ -2565,8 +2813,8 @@ if (!user) return <AuthScreen />;
                       monthsData[key] = { income: 0, expense: 0, savings: 0 };
                     }
                     transactions.forEach(t => {
-                      const d = new Date(t.date);
-                      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const d = parseLocalDate(t.date);
+                    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                       if (monthsData[key]) {
                         if (t.type === 'income') monthsData[key].income += t.amount;
                         else monthsData[key].expense += t.amount;
@@ -2581,7 +2829,7 @@ if (!user) return <AuthScreen />;
                     return (
                       <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
                         <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">📊 Tren 12 Bulan Terakhir</h3>
-                        <ResponsiveContainer width="100%" height={200}>
+                        <ResponsiveContainer width="100%" height={200} minWidth={200}>
                           <LineChart data={trendData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
                             <XAxis dataKey="name" tick={{ fontSize: 9, fill: isDark ? '#94a3b8' : '#64748b' }} tickLine={false} />
@@ -2621,12 +2869,44 @@ if (!user) return <AuthScreen />;
                   </div>
                  {(showBudgetForm || editingBudget) && (
   <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3">
-    <select value={budgetForm.category} onChange={e => setBudgetForm({ ...budgetForm, category: e.target.value })}
-      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-      {Object.entries(expenseCategories).map(([k, c]) => (
-        <option key={k} value={k}>{c.icon} {c.name}</option>
+    {/* ✅ CUSTOM DROPDOWN KATEGORI BUDGET */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setIsBudgetCategoryDropdownOpen(!isBudgetCategoryDropdownOpen)}
+    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 flex justify-between items-center"
+  >
+    <span className="flex items-center gap-2">
+      <span>{expenseCategories[budgetForm.category]?.icon || '📋'}</span>
+      <span>{expenseCategories[budgetForm.category]?.name || 'Pilih Kategori'}</span>
+    </span>
+    <span className="text-slate-400">
+      {isBudgetCategoryDropdownOpen ? '▲' : '▼'}
+    </span>
+  </button>
+
+  {isBudgetCategoryDropdownOpen && (
+    <div className="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+      {Object.entries(expenseCategories).map(([key, cat]) => (
+        <button
+          key={key}
+          onClick={() => {
+            setBudgetForm(prev => ({ ...prev, category: key }));
+            setIsBudgetCategoryDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+            budgetForm.category === key
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span>{cat.icon}</span>
+          <span>{cat.name}</span>
+        </button>
       ))}
-    </select>
+    </div>
+  )}
+</div>
     <input type="text" value={formatNominalDisplay(budgetForm.limit)} onChange={e => setBudgetForm({ ...budgetForm, limit: parseNominal(e.target.value).toString() })}
       placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
       className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
@@ -2830,18 +3110,92 @@ if (!user) return <AuthScreen />;
                    </div>
                    <input type="text" value={recurringForm.name} onChange={e => setRecurringForm({ ...recurringForm, name: e.target.value })}
                     placeholder="Nama (Listrik, Gaji...)" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
-                   <select value={recurringForm.category} onChange={e => setRecurringForm({ ...recurringForm, category: e.target.value })}
-                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-                    {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([k, c]) => <option key={k} value={k}>{c.icon} {c.name}</option>)}
-                   </select>
+                   {/* ✅ CUSTOM DROPDOWN KATEGORI RECURRING */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setIsRecurringCategoryDropdownOpen(!isRecurringCategoryDropdownOpen)}
+    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 flex justify-between items-center"
+  >
+    <span className="flex items-center gap-2">
+      <span>{(recurringForm.type === 'income' ? incomeCategories : expenseCategories)[recurringForm.category]?.icon || '📋'}</span>
+      <span>{(recurringForm.type === 'income' ? incomeCategories : expenseCategories)[recurringForm.category]?.name || 'Pilih Kategori'}</span>
+    </span>
+    <span className="text-slate-400">
+      {isRecurringCategoryDropdownOpen ? '▲' : '▼'}
+    </span>
+  </button>
+
+  {isRecurringCategoryDropdownOpen && (
+    <div className="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+      {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([key, cat]) => (
+        <button
+          key={key}
+          onClick={() => {
+            setRecurringForm(prev => ({ ...prev, category: key }));
+            setIsRecurringCategoryDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+            recurringForm.category === key
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span>{cat.icon}</span>
+          <span>{cat.name}</span>
+        </button>
+      ))}
+    </div>
+  )}
+</div>
                    <input type="text" value={formatNominalDisplay(recurringForm.amount)} onChange={e => setRecurringForm({ ...recurringForm, amount: parseNominal(e.target.value).toString() })}
                     placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
                     className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
-                   <select value={recurringForm.frequency} onChange={e => setRecurringForm({ ...recurringForm, frequency: e.target.value as any })}
-                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white">
-                     <option value="daily">Harian</option>  <option value="weekly">Mingguan</option>
-                     <option value="monthly">Bulanan</option>  <option value="yearly">Tahunan</option>
-                   </select>
+                   {/* ✅ CUSTOM DROPDOWN FREKUENSI RECURRING */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setIsRecurringFrequencyDropdownOpen(!isRecurringFrequencyDropdownOpen)}
+    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 flex justify-between items-center"
+  >
+    <span>
+      {recurringForm.frequency === 'daily' ? '📅 Harian' :
+       recurringForm.frequency === 'weekly' ? '📆 Mingguan' :
+       recurringForm.frequency === 'monthly' ? '🗓️ Bulanan' :
+       '🎂 Tahunan'}
+    </span>
+    <span className="text-slate-400">
+      {isRecurringFrequencyDropdownOpen ? '▲' : '▼'}
+    </span>
+  </button>
+
+  {isRecurringFrequencyDropdownOpen && (
+    <div className="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
+      {[
+        { value: 'daily', label: 'Harian', icon: '📅' },
+        { value: 'weekly', label: 'Mingguan', icon: '📆' },
+        { value: 'monthly', label: 'Bulanan', icon: '🗓️' },
+        { value: 'yearly', label: 'Tahunan', icon: '🎂' },
+      ].map((freq) => (
+        <button
+          key={freq.value}
+          onClick={() => {
+            setRecurringForm(prev => ({ ...prev, frequency: freq.value as any }));
+            setIsRecurringFrequencyDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+            recurringForm.frequency === freq.value
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-semibold'
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span>{freq.icon}</span>
+          <span>{freq.label}</span>
+        </button>
+      ))}
+    </div>
+  )}
+</div>
                    <input type="date" value={recurringForm.nextDate} onChange={e => setRecurringForm({ ...recurringForm, nextDate: e.target.value })}
                     className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
                    <div className="flex gap-2">
