@@ -231,6 +231,7 @@ const [transactionItems, setTransactionItems] = useState<Array<{ name: string; q
 const [showItemDetails, setShowItemDetails] = useState(false);
 // ✅ STATE UNTUK CHART READY (menghilangkan warning Recharts)
 const [chartReady, setChartReady] = useState(false);
+const bookManagerRef = useRef<HTMLDivElement>(null);
 
 
 // ✅ HELPER: Parse items dari notes (ULTIMATE SAFE VERSION)
@@ -1416,6 +1417,7 @@ useEffect(() => {
       setIsBudgetCategoryDropdownOpen(false); // ✅ TAMBAHKAN
       setIsRecurringCategoryDropdownOpen(false); // ✅ TAMBAHKAN
       setIsRecurringFrequencyDropdownOpen(false); // ✅ TAMBAHKAN
+      setShowBookManager(false);
     }
   };
   document.addEventListener('mousedown', handleClickOutside);
@@ -1506,7 +1508,7 @@ if (!user && !authLoading) return <AuthScreen />;
 
     {/* Row 2: Book Manager Panel (Collapsible) */}
     {showBookManager && (
-      <div className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 mt-2 border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-2">
+      <div className="relative bg-slate-50 dark:bg-slate-900 rounded-xl p-3 mt-2 border border-slate-200 dark:border-slate-700 animate-in slide-in-from-top-2">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300">📚 Kelola Buku</h3>
           <button onClick={() => setShowBookManager(false)} className="text-slate-400 hover:text-slate-600">
