@@ -34,4 +34,50 @@ export default defineConfig({
       }
     })
   ],
+  
+  // ✅ TAMBAHKAN KONFIGURASI BUILD INI
+  build: {
+    // Naikkan limit warning (default 500kB)
+    chunkSizeWarningLimit: 1000,
+    
+    rollupOptions: {
+      output: {
+        // ✅ PISAHKAN LIBRARY BESAR KE CHUNK TERPISAH
+        manualChunks: {
+          // React core (~40kB)
+          'vendor-react': ['react', 'react-dom'],
+          
+          // Recharts - library chart paling berat (~200kB)
+          'vendor-recharts': ['recharts'],
+          
+          // date-fns untuk format tanggal (~80kB)
+          'vendor-date': ['date-fns'],
+          
+          // Supabase client (~100kB)
+          'vendor-supabase': ['@supabase/supabase-js'],
+          
+          // Lucide icons (~150kB)
+          'vendor-icons': ['lucide-react'],
+          
+          // Toast notifications (~20kB)
+          'vendor-toast': ['react-hot-toast'],
+        },
+        
+        // ✅ FORMAT NAMA FILE YANG JELAS
+        chunkFileNames: 'assets/js/[name]-[hash].js',
+        entryFileNames: 'assets/js/[name]-[hash].js',
+        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
+      }
+    },
+    
+    // ✅ MINIFY UNTUK PRODUCTION
+    minify: 'esbuild',
+    sourcemap: false,
+  },
+  
+  // ✅ OPTIMASI UNTUK DEVELOPMENT
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
 })
