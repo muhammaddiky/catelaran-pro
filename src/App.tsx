@@ -233,6 +233,15 @@ const [showItemDetails, setShowItemDetails] = useState(false);
 const [chartReady, setChartReady] = useState(false);
 const bookManagerRef = useRef<HTMLDivElement>(null);
 
+// ✅ EFFECT: Set isReady saat data sudah dimuat
+useEffect(() => {
+  if (!authLoading && !dataLoading && user && activeBook) {
+    setIsReady(true);
+  } else if (!user && !authLoading) {
+    setIsReady(false);
+  }
+}, [authLoading, dataLoading, user, activeBook]);
+
 
 // ✅ HELPER: Parse items dari notes (ULTIMATE SAFE VERSION)
 const parseItemsFromNotes = (notes?: string | null): Array<{ name: string; qty: number; price: number }> => {
@@ -1444,6 +1453,12 @@ useEffect(() => {
 // Tidak ada delay, tidak ada skeleton
 if (!user && !authLoading) return <AuthScreen />;
 
+// ✅ TAMPILKAN SPLASH SCREEN SAAT DATA MASIH LOADING SETELAH LOGIN
+// Ini mencegah tampilan "Selamat datang" dengan data kosong saat aplikasi baru dibuka setelah lama tidak digunakan
+if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
+  return <SplashScreen />;
+}
+
   // ✅ MAIN RENDER - FIXED!
   return (
     <div className={`${isDark ? 'dark' : ''}`}>
@@ -1493,6 +1508,9 @@ if (!user && !authLoading) return <AuthScreen />;
           <h1 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
             Halo, {profile?.full_name?.split(' ')[0] || 'User'}👋
           </h1>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+            halo ini saya diky setiya
+          </p>
           <p className="text-[10px] text-slate-500 dark:text-slate-400">
             {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' })}
           </p>

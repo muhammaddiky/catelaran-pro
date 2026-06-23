@@ -1,23 +1,30 @@
 import React, { useEffect, useState } from 'react';
 
 interface SplashScreenProps {
-  onFinish: () => void;
+  onFinish?: () => void;
   isDark?: boolean;
+  duration?: number; // Durasi dalam ms, default 2200
 }
 
-export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish, isDark = false }) => {
+export const SplashScreen: React.FC<SplashScreenProps> = ({ 
+  onFinish, 
+  isDark = false,
+  duration = 2200 
+}) => {
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
-    // Tampilkan splash minimal 2.2 detik agar user bisa menikmati animasinya
-    const timer = setTimeout(() => {
-      setIsExiting(true); // Mulai animasi keluar
-      // Setelah animasi keluar selesai (500ms), panggil onFinish untuk masuk ke aplikasi
-      setTimeout(onFinish, 500);
-    }, 2200);
+    if (onFinish) {
+      // Mode dengan animasi keluar (untuk onboarding pertama kali)
+      const timer = setTimeout(() => {
+        setIsExiting(true);
+        setTimeout(onFinish, 500);
+      }, duration);
 
-    return () => clearTimeout(timer);
-  }, [onFinish]);
+      return () => clearTimeout(timer);
+    }
+    // Jika tidak ada onFinish, splash screen akan tetap tampil sampai parent component menggantinya
+  }, [onFinish, duration]);
 
   return (
     <div 
