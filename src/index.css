@@ -86,3 +86,24 @@ button[type="button"] {
 .min-h-\[80px\] {
   min-height: 80px;
 }
+
+/* ⚠️ TAMBAHKAN INI untuk mencegah flash of white screen */
+@layer base {
+  html {
+    @apply bg-slate-50 text-slate-900;
+  }
+  
+  html.dark {
+    @apply bg-slate-900 text-white;
+    color-scheme: dark;
+  }
+  
+  body {
+    @apply min-h-screen;
+  }
+}
+
+/* Cegah FOUC (Flash of Unstyled Content) */
+html.dark {
+  background-color: #0f172a; /* slate-900 */
+}

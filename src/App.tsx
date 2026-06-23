@@ -19,6 +19,7 @@ import { useSupabaseData } from './hooks/useSupabaseData';
 import { supabase } from './lib/supabase';
 import { SplashScreen } from './components/SplashScreen';
 import { addMonths } from 'date-fns'; // ✅ TAMBAHKAN IMPORT
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // ==================== TYPES ====================
 interface Transaction {
@@ -232,15 +233,9 @@ const [showItemDetails, setShowItemDetails] = useState(false);
 // ✅ STATE UNTUK CHART READY (menghilangkan warning Recharts)
 const [chartReady, setChartReady] = useState(false);
 const bookManagerRef = useRef<HTMLDivElement>(null);
+const [loadingTimeout, setLoadingTimeout] = useState(false);
 
-// ✅ EFFECT: Set isReady saat data sudah dimuat
-useEffect(() => {
-  if (!authLoading && !dataLoading && user && activeBook) {
-    setIsReady(true);
-  } else if (!user && !authLoading) {
-    setIsReady(false);
-  }
-}, [authLoading, dataLoading, user, activeBook]);
+
 
 
 // ✅ HELPER: Parse items dari notes (ULTIMATE SAFE VERSION)
@@ -368,6 +363,15 @@ const safeTransactions = transactions || [];
 const safeBudgets = budgets || [];
 const safeGoals = goals || [];
 const safeRecurring = recurringTransactions || [];
+
+// ✅ EFFECT: Set isReady saat data sudah dimuat
+useEffect(() => {
+  if (!authLoading && !dataLoading && user && activeBook) {
+    setIsReady(true);
+  } else if (!user && !authLoading) {
+    setIsReady(false);
+  }
+}, [authLoading, dataLoading, user, activeBook]);
 
 
 // State untuk Book Manager
@@ -507,7 +511,7 @@ useEffect(() => {
   return () => clearTimeout(timer);
 }, [activeBook, isFamilyMode, theme]);
 
-// ✅ MAIN RENDER - FIXED!
+
 // ✅ UBAH FUNGSI handlePayRecurring
 const handlePayRecurring = async (r: RecurringTransaction) => {
   if (!window.confirm(`💰 Bayar "${r.name}" sebesar ${formatCurrency(r.amount)} sekarang?`)) {
@@ -1449,15 +1453,51 @@ useEffect(() => {
 
 
 
-// ✅ LANGSUNG RENDER APLIKASI, TAMPILKAN AUTHSCREEN JIKA BELUM LOGIN
-// Tidak ada delay, tidak ada skeleton
+// ✅ KODE BARU
 if (!user && !authLoading) return <AuthScreen />;
 
-// ✅ TAMPILKAN SPLASH SCREEN SAAT DATA MASIH LOADING SETELAH LOGIN
-// Ini mencegah tampilan "Selamat datang" dengan data kosong saat aplikasi baru dibuka setelah lama tidak digunakan
-if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
-  return <SplashScreen />;
+// ✅ TIMEOUT: Jika loading terlalu lama, tampilkan opsi reset
+if (loadingTimeout && (authLoading || dataLoading || !isReady)) {
+  return (
+    <div className={`min-h-screen flex items-center justify-center p-4 ${
+      theme === 'dark' ? 'bg-slate-900' : 'bg-slate-50'
+    }`}>
+      <div className={`max-w-sm w-full rounded-2xl p-6 shadow-xl text-center ${
+        theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'
+      }`}>
+        <div className="text-5xl mb-4 animate-bounce">⏳</div>
+        <h2 className="text-lg font-bold mb-2">Loading Terlalu Lama</h2>
+        <p className={`text-sm mb-4 ${
+          theme === 'dark' ? 'text-slate-300' : 'text-slate-600'
+        }`}>
+          Aplikasi kesulitan memuat data. Coba muat ulang atau reset cache.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold mb-2 active:scale-95"
+        >
+          🔄 Muat Ulang
+        </button>
+        <button
+          onClick={() => {
+            localStorage.clear();
+            window.location.reload();
+          }}
+          className={`w-full py-3 rounded-xl font-semibold active:scale-95 ${
+            theme === 'dark' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'
+          }`}
+        >
+          🗑️ Hapus Cache & Muat Ulang
+        </button>
+      </div>
+    </div>
+  );
 }
+
+if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
+  return <SplashScreen isDark={theme === 'dark'} />;  // ✅ Pass isDark
+}
+
 
   // ✅ MAIN RENDER - FIXED!
   return (
