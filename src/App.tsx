@@ -1501,6 +1501,7 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
   // ✅ MAIN RENDER - FIXED!
   return (
+    
     <div className={`${isDark ? 'dark' : ''}`}>
       <div className="min-h-[100dvh] bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
         <Toaster position="top-center" />
@@ -1548,9 +1549,6 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           <h1 className="text-xs font-bold text-slate-900 dark:text-white leading-tight">
             Halo, {profile?.full_name?.split(' ')[0] || 'User'}👋
           </h1>
-          <p className="text-[10px] text-slate-500 dark:text-slate-400">
-            halo ini saya diky setiya
-          </p>
           <p className="text-[10px] text-slate-500 dark:text-slate-400">
             {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' })}
           </p>
