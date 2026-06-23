@@ -1,39 +1,45 @@
+```
 # Dependencies
 node_modules/
-yarn.lock
 
-# Production
+# Build outputs
 dist/
 build/
+target/
 
-# Environment
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.ENV
 .env
 .env.local
-.env.*.local
+.env.*
+.envrc
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# IDE
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor files
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+*.tmp
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-npm-debug.log
-yarn-error.log
-
-# Misc
-.cache/
-.parcel-cache/
-.next/
-out/
-
-# Database
-.env
-.env.local
-node_modules
-dist
+# Coverage reports
+coverage/
+```
