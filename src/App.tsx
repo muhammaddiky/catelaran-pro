@@ -1501,7 +1501,7 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
   // ✅ MAIN RENDER - FIXED!
   return (
-    
+    <ErrorBoundary isDark={theme === 'dark'}>
     <div className={`${isDark ? 'dark' : ''}`}>
       <div className="min-h-[100dvh] bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
         <Toaster position="top-center" />
@@ -4197,5 +4197,6 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
         </nav>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }
