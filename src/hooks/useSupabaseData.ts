@@ -23,6 +23,7 @@ export interface SupabaseTransaction {
 export interface SupabaseBudget {
   id: string; user_id: string; book_id: string | null; category: string;
   limit_amount: number; period: string;
+  description?: string | null; // ✅ TAMBAHKAN INI
   notified_threshold_50: boolean; notified_threshold_80: boolean; notified_threshold_100: boolean;
 }
 
@@ -265,14 +266,27 @@ useEffect(() => {
   };
 
   // ========== TRANSACTION CRUD ==========
-  const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>) => {
-    if (!user || !activeBook) return null;
-    const { data, error } = await supabase.from('transactions')
-      .insert({ ...t, user_id: user.id, book_id: activeBook.id }).select().single();
-    if (error) { toast.error('Gagal tambah transaksi'); return null; }
-    setTransactions(prev => [data, ...prev]);
-    return data;
-  };
+ const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>) => {
+  if (!user || !activeBook) {
+    console.error('❌ Missing user or activeBook');
+    return null;
+  }
+    // ✅ LOG DATE YANG AKAN DI-INSERT
+  console.log('📝 Adding transaction with date:', t.date, 'Type:', typeof t.date);
+  
+  const { data, error } = await supabase.from('transactions')
+    .insert({ ...t, user_id: user.id, book_id: activeBook.id }).select().single();
+    
+  if (error) { 
+    console.error('❌ Supabase insert error:', error);
+    toast.error('Gagal: ' + error.message); 
+    return null; 
+  }
+  
+  console.log('✅ Transaction added:', data);
+setTransactions(prev => [data, ...prev]);
+return data;
+};
 
   const updateTransaction = async (id: string, updates: Partial<Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>>) => {
   if (!user || !activeBook) return null;
@@ -316,17 +330,17 @@ const deleteTransaction = async (id: string) => {
 };
 
   // ========== BUDGET CRUD ==========
-  const addBudget = async (b: { category: string; limit_amount: number; period?: string }) => {
-    if (!user || !activeBook) return null;
-    const { data, error } = await supabase.from('budgets').insert({
-      ...b, user_id: user.id, book_id: activeBook.id, period: b.period || 'monthly',
-      notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
-    }).select().single();
-    if (error) { toast.error('Gagal tambah budget'); return null; }
-    setBudgets(prev => [...prev, data]);
-    return data;
-  };
-
+    const addBudget = async (b: { category: string; limit_amount: number; period?: string; description?: string }) => {
+      if (!user || !activeBook) return null;
+      const { data, error } = await supabase.from('budgets').insert({
+        ...b, user_id: user.id, book_id: activeBook.id, period: b.period || 'monthly',
+        description: b.description || null, // ✅ TAMBAHKAN INI
+        notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
+      }).select().single();
+      if (error) { toast.error('Gagal tambah budget'); return null; }
+      setBudgets(prev => [...prev, data]);
+      return data;
+};
     const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string }) => {
     const { data, error } = await supabase.from('budgets').update(updates).eq('id', id).select().single();
     if (error) { 

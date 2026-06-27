@@ -52,6 +52,7 @@ interface Budget {
   category: string;
   limit: number;
   period: 'monthly' | 'yearly';
+  description?: string; // ✅ TAMBAHKAN INI
   createdAt: string;
   notified?: { threshold50?: boolean; threshold80?: boolean; threshold100?: boolean };
 }
@@ -94,15 +95,11 @@ const incomeCategories: Record<string, CategoryConfig> = {
 };
 
 const expenseCategories: Record<string, CategoryConfig> = {
-  rumah_tangga: { id: 'rumah_tangga', name: 'Rumah', shortName: 'Rumah', icon: '🏠', color: 'text-orange-600', bgColor: 'bg-orange-100', type: 'expense' },
+  rumah_tangga: { id: 'rumah_tangga', name: 'Rumah Tangga', shortName: 'Rumah Tangga', icon: '🏠', color: 'text-orange-600', bgColor: 'bg-orange-100', type: 'expense' },
   utilitas: { id: 'utilitas', name: 'Utilitas', shortName: 'Util', icon: '⚡', color: 'text-yellow-600', bgColor: 'bg-yellow-100', type: 'expense' },
   makanan: { id: 'makanan', name: 'Makanan', shortName: 'Mkn', icon: '🍜', color: 'text-orange-500', bgColor: 'bg-orange-50', type: 'expense' },
   transportasi: { id: 'transportasi', name: 'Transport', shortName: 'Trans', icon: '🚗', color: 'text-red-600', bgColor: 'bg-red-100', type: 'expense' },
-  pendidikan: { id: 'pendidikan', name: 'Pendidikan', shortName: 'Pend', icon: '📚', color: 'text-indigo-600', bgColor: 'bg-indigo-100', type: 'expense' },
-  kesehatan: { id: 'kesehatan', name: 'Kesehatan', shortName: 'Kes', icon: '🏥', color: 'text-red-500', bgColor: 'bg-red-50', type: 'expense' },
-  cicilan: { id: 'cicilan', name: 'Cicilan', shortName: 'Ccl', icon: '💳', color: 'text-blue-700', bgColor: 'bg-blue-100', type: 'expense' },
-  asuransi: { id: 'asuransi', name: 'Asuransi', shortName: 'Asr', icon: '🛡️', color: 'text-indigo-500', bgColor: 'bg-indigo-50', type: 'expense' },
-  investasi_exp: { id: 'investasi_exp', name: 'Investasi', shortName: 'Inv', icon: '💰', color: 'text-green-600', bgColor: 'bg-green-100', type: 'expense' },
+  perawatan_diri: { id: 'perawatan_diri', name: 'Perawatan Diri', shortName: 'Perwt', icon: '💇', color: 'text-pink-600', bgColor: 'bg-pink-100', type: 'expense' },
   hiburan: { id: 'hiburan', name: 'Hiburan', shortName: 'Hbr', icon: '🎬', color: 'text-pink-600', bgColor: 'bg-pink-100', type: 'expense' },
   belanja: { id: 'belanja', name: 'Belanja', shortName: 'Blnj', icon: '🛍️', color: 'text-rose-600', bgColor: 'bg-rose-100', type: 'expense' },
   belanja_online: { id: 'belanja_online', name: 'Belanja Online', shortName: 'OlShop', icon: '📦', color: 'text-orange-600', bgColor: 'bg-orange-100', type: 'expense' },
@@ -110,6 +107,11 @@ const expenseCategories: Record<string, CategoryConfig> = {
   sosial: { id: 'sosial', name: 'Sosial', shortName: 'Sos', icon: '🤝', color: 'text-purple-600', bgColor: 'bg-purple-100', type: 'expense' },
   anak: { id: 'anak', name: 'Anak', shortName: 'Anak', icon: '👶', color: 'text-pink-500', bgColor: 'bg-pink-50', type: 'expense' },
   cadangan: { id: 'cadangan', name: 'Cadangan', shortName: 'Cdg', icon: '🔐', color: 'text-slate-600', bgColor: 'bg-slate-100', type: 'expense' },
+  pendidikan: { id: 'pendidikan', name: 'Pendidikan', shortName: 'Pend', icon: '📚', color: 'text-indigo-600', bgColor: 'bg-indigo-100', type: 'expense' },
+  kesehatan: { id: 'kesehatan', name: 'Kesehatan', shortName: 'Kes', icon: '🏥', color: 'text-red-500', bgColor: 'bg-red-50', type: 'expense' },
+  cicilan: { id: 'cicilan', name: 'Cicilan', shortName: 'Ccl', icon: '💳', color: 'text-blue-700', bgColor: 'bg-blue-100', type: 'expense' },
+  asuransi: { id: 'asuransi', name: 'Asuransi', shortName: 'Asr', icon: '🛡️', color: 'text-indigo-500', bgColor: 'bg-indigo-50', type: 'expense' },
+  investasi_exp: { id: 'investasi_exp', name: 'Investasi', shortName: 'Inv', icon: '💰', color: 'text-green-600', bgColor: 'bg-green-100', type: 'expense' },
 };
 
 // ✅ KONFIGURASI METODE PEMBAYARAN (3 KATEGORI)
@@ -168,6 +170,7 @@ const categoryExamples: Record<string, string[]> = {
   sosial: ['Sedekah', 'Kondangan pernikahan', 'Sumbangan'],
   anak: ['Susu & popok', 'Mainan anak', 'Uang saku sekolah'],
   cadangan: ['Dana darurat', 'Tabungan masa depan', 'Alokasi risiko'],
+  perawatan_diri: ['Potong rambut', 'Skincare & kosmetik', 'Salon & spa'],
 };
 
 
@@ -176,9 +179,10 @@ const categoryExamples: Record<string, string[]> = {
 // Mencegah bug timezone dimana "2024-01-01" jadi bulan sebelumnya di zona negatif
 const parseLocalDate = (dateStr: string): Date => {
   if (!dateStr) return new Date();
-  // Tambahkan T00:00:00 agar di-parse sebagai waktu lokal, BUKAN UTC
-  const d = new Date(dateStr + 'T00:00:00');
-  // Fallback jika invalid
+  // ✅ PENTING: Parse sebagai LOCAL date, bukan UTC
+  // Tambahkan waktu siang (12:00) untuk menghindari masalah timezone
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day, 12, 0, 0, 0);
   if (isNaN(d.getTime())) return new Date(dateStr);
   return d;
 };
@@ -234,6 +238,9 @@ const [showItemDetails, setShowItemDetails] = useState(false);
 const [chartReady, setChartReady] = useState(false);
 const bookManagerRef = useRef<HTMLDivElement>(null);
 const [loadingTimeout, setLoadingTimeout] = useState(false);
+// ✅ STATE BARU: Pajak
+const [includeTax, setIncludeTax] = useState(false);
+const [taxRate, setTaxRate] = useState<'10' | '11'>('11');
 
 
 
@@ -311,8 +318,23 @@ const serializeItemsToNotes = (
 
 // ✅ HELPER: Hitung total items (memoized)
 const itemsTotal = useMemo(() => {
-  return transactionItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
-}, [transactionItems]);
+  const subtotal = transactionItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
+  if (includeTax && subtotal > 0) {
+    const rate = taxRate === '10' ? 0.10 : 0.11;
+    return Math.round(subtotal * (1 + rate));
+  }
+  return subtotal;
+}, [transactionItems, includeTax, taxRate]);
+
+// ✅ HITUNG PAJAK SAJA (untuk display)
+const taxAmount = useMemo(() => {
+  const subtotal = transactionItems.reduce((sum, item) => sum + (item.qty * item.price), 0);
+  if (includeTax && subtotal > 0) {
+    const rate = taxRate === '10' ? 0.10 : 0.11;
+    return Math.round(subtotal * rate);
+  }
+  return 0;
+}, [transactionItems, includeTax, taxRate]);
 
   // ✅ TAMBAHKAN INI: State untuk filter buku (Default: Semua buku terpilih)
 const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
@@ -339,7 +361,9 @@ const transactions: Transaction[] = rawTransactions.map(t => ({
 
 const budgets: Budget[] = rawBudgets.map(b => ({
   id: b.id, category: b.category, limit: b.limit_amount,
-  period: b.period as 'monthly' | 'yearly', createdAt: '',
+  period: b.period as 'monthly' | 'yearly',
+  description: b.description || undefined, // ✅ TAMBAHKAN INI
+  createdAt: '',
   notified: {
     threshold50: b.notified_threshold_50,
     threshold80: b.notified_threshold_80,
@@ -372,6 +396,13 @@ useEffect(() => {
     setIsReady(false);
   }
 }, [authLoading, dataLoading, user, activeBook]);
+
+// ✅ AUTO-UPDATE NOMINAL DARI RINCIAN
+useEffect(() => {
+  if (showItemDetails && transactionItems.length > 0 && itemsTotal > 0) {
+    setFormData(prev => ({ ...prev, amount: itemsTotal.toString() }));
+  }
+}, [itemsTotal, showItemDetails, transactionItems.length]);
 
 
 // State untuk Book Manager
@@ -430,7 +461,7 @@ const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | 
     notes: '',
     payment_method: 'cash',
   });
-  const [budgetForm, setBudgetForm] = useState({ category: 'makanan', limit: '' });
+  const [budgetForm, setBudgetForm] = useState({ category: 'makanan', limit: '', description: '' });
   const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [goalForm, setGoalForm] = useState({ name: '', targetAmount: '', deadline: '', monthlyContribution: '', icon: '🎯' });
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -690,16 +721,18 @@ const paymentSummary = useMemo(() => {
     return s;
   }, [transactions]);
 
-  const pieData = useMemo(() =>
-    Object.entries(monthlySpending)
-      .map(([k, v]) => ({
-        name: expenseCategories[k]?.shortName || k,
-        fullName: expenseCategories[k]?.name || k,
-        icon: expenseCategories[k]?.icon || '',
-        value: v,
-      })),
-    [monthlySpending]
-  );
+  // ✅ SORT SEKALI DI SINI, AGAR CHART & LEGEND PAKAI URUTAN SAMA
+const pieData = useMemo(() =>
+  Object.entries(monthlySpending)
+    .map(([k, v]) => ({
+      name: expenseCategories[k]?.shortName || k,
+      fullName: expenseCategories[k]?.name || k,
+      icon: expenseCategories[k]?.icon || '',
+      value: v,
+    }))
+    .sort((a, b) => b.value - a.value), // ✅ SORT DESCENDING
+  [monthlySpending]
+);
 
   const barData = useMemo(() => {
     const now = new Date();
@@ -815,15 +848,24 @@ const paymentBarData = useMemo(() => {
 
   const handleAddTransaction = async () => {
   if (!formData.description || !formData.amount) { notify.error('Deskripsi & nominal wajib diisi!'); return; }
-      // ✅ Gabungkan items ke notes sebagai JSON
-    const finalNotes = serializeItemsToNotes(transactionItems, formData.notes);
-    
-    const payload = {
-      date: formData.date, type: formData.type, category: formData.category,
-      description: formData.description, amount: parseInt(formData.amount), 
-      notes: finalNotes,
-      payment_method: formData.payment_method,
-    };
+    // ✅ Gabungkan items + tax info ke notes
+let finalNotes = serializeItemsToNotes(transactionItems, formData.notes);
+
+// Tambah tax info jika includeTax aktif
+if (includeTax && transactionItems.length > 0) {
+  finalNotes = (finalNotes || '') + ` [tax:${taxRate}%]`.trim();
+}
+
+// ✅ Pastikan format tanggal YYYY-MM-DD tanpa timezone
+const payload = {
+  date: formData.date, // Sudah format YYYY-MM-DD dari input
+  type: formData.type, 
+  category: formData.category,
+  description: formData.description, 
+  amount: parseInt(formData.amount), 
+  notes: finalNotes,
+  payment_method: formData.payment_method,
+};
     if (editingId) {
       const result = await updateTransaction(editingId, payload);
       if (result) { setEditingId(null); notify.success('Transaksi diupdate! ☁️'); }
@@ -838,6 +880,8 @@ const paymentBarData = useMemo(() => {
     setFormData({ date: new Date().toISOString().split('T')[0], type: 'expense', category: 'makanan', description: '', amount: '', notes: '', payment_method: 'cash' });
     setTransactionItems([]);
     setShowItemDetails(false);
+    setIncludeTax(false);
+    setTaxRate('11');
     setActiveTab('history');
 };
 
@@ -874,29 +918,33 @@ const paymentBarData = useMemo(() => {
 };
 
   const handleEdit = (t: Transaction) => {
-  // ✅ PARSE ITEMS DARI NOTES TRANSAKSI
   const extractedItems = parseItemsFromNotes(t.notes);
-  
-  setFormData({ 
-    date: t.date, 
-    type: t.type, 
-    category: t.category, 
-    description: t.description, 
-    amount: t.amount.toString(), 
-    // ✅ PENTING: Bersihkan notes dari tag items agar user tidak melihat JSON mentah
-    notes: (t.notes || '').replace(/\[items:[\s\S]*?\]/g, '').trim(), 
-    payment_method: t.payment_method || 'cash' 
+  setFormData({
+    date: t.date,
+    type: t.type,
+    category: t.category,
+    description: t.description,
+    amount: t.amount.toString(),
+    notes: (t.notes || '').replace(/\[items:[\s\S]*?\]/g, '').replace(/\[tax:[\s\S]*?\]/g, '').trim(),
+    payment_method: t.payment_method || 'cash'
   });
-  
-  // ✅ SET STATE ITEMS & TOGGLE PANEL
   setTransactionItems(extractedItems);
-  setShowItemDetails(extractedItems.length > 0); // Auto buka panel jika ada items
+  setShowItemDetails(extractedItems.length > 0);
+  
+  // ✅ LOAD TAX INFO DARI NOTES (jika ada)
+  const taxMatch = t.notes?.match(/\[tax:(\d+)%\]/);
+  if (taxMatch) {
+    setIncludeTax(true);
+    setTaxRate(taxMatch[1] as '10' | '11');
+  } else {
+    setIncludeTax(false);
+    setTaxRate('11');
+  }
   
   setEditingId(t.id);
   setActiveTab('input');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 };
-
   const filteredTransactions = useMemo(() => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -954,16 +1002,18 @@ const paymentBarData = useMemo(() => {
     
     .filter(t => !filterCategory || t.category === filterCategory)
     .sort((a, b) => {
-  // ✅ Urutkan berdasarkan waktu input (createdAt), bukan hanya tanggal transaksi
-  const timeA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime();
-  const timeB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime();
-  
-  // Jika waktu input berbeda, yang terbaru di atas
-  if (timeB !== timeA) return timeB - timeA;
-  
-  // Fallback: urutkan berdasarkan tanggal transaksi
-  return new Date(b.date).getTime() - new Date(a.date).getTime();
-});
+    // ✅ PRIORITAS: Urutkan berdasarkan tanggal transaksi (date)
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+
+    // Primary sort: tanggal transaksi (terbaru di atas)
+    if (dateB !== dateA) return dateB - dateA;
+
+    // Secondary sort: jika tanggal sama, urutkan berdasarkan waktu input (createdAt)
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+    });
     
 }, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books]); 
 // ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
@@ -977,18 +1027,24 @@ const currentExamples = categoryExamples[formData.category]?.join(', ') || '';
   const limit = parseNominal(budgetForm.limit);
   if (limit <= 0) { notify.error('Nominal tidak valid'); return; }
   if (budgets.some(b => b.category === budgetForm.category)) { notify.error('Budget sudah ada'); return; }
-  const result = await addBudget({ category: budgetForm.category, limit_amount: limit });
+  const result = await addBudget({ 
+    category: budgetForm.category, 
+    limit_amount: limit,
+    description: budgetForm.description.trim() || undefined // ✅ TAMBAHKAN INI
+  });
   if (result) {
     notify.success(`Budget ${expenseCategories[budgetForm.category].name} ditambahkan`);
-    setBudgetForm({ category: 'makanan', limit: '' });
+    setBudgetForm({ category: 'makanan', limit: '', description: '' }); // ✅ RESET description
     setShowBudgetForm(false);
   }
 };
+
 const handleEditBudget = (budget: Budget) => {
   setEditingBudget(budget);
   setBudgetForm({
     category: budget.category,
-    limit: budget.limit.toString()
+    limit: budget.limit.toString(),
+    description: budget.description || '' // ✅ TAMBAHKAN INI
   });
   setShowBudgetForm(true);
 };
@@ -1009,14 +1065,15 @@ const handleUpdateBudget = async () => {
       return; 
     }
     const result = await updateBudget(editingBudget.id, {
-      category: budgetForm.category,
-      limit_amount: limit
-    });
-    if (result) {
-      notify.success('Budget berhasil diupdate');
-      setEditingBudget(null);
-      setShowBudgetForm(false);
-      setBudgetForm({ category: 'makanan', limit: '' });
+  category: budgetForm.category,
+  limit_amount: limit,
+  description: budgetForm.description.trim() || undefined // ✅ TAMBAHKAN INI
+  });
+  if (result) {
+  notify.success('Budget berhasil diupdate');
+  setEditingBudget(null);
+  setShowBudgetForm(false);
+      setBudgetForm({ category: 'makanan', limit: '', description: '' });
     } else {
       notify.error('Gagal memperbarui budget. Cek koneksi atau RLS Policy.');
     }
@@ -1915,9 +1972,9 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                         stroke="none"
                       >
                         {pieData.map((_, i) => (
-                          <Cell key={`cell-${i}`} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
+                        <Cell key={`cell-${i}`} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
                     </RePieChart>
                   </ResponsiveContainer>
                   
@@ -1932,9 +1989,9 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
                 {/* Bagian Kanan: List Detail */}
                 <div className="flex-1 w-full space-y-3">
-                  {pieData.toSorted((a, b) => b.value - a.value).map((entry, index) => {
-                    const total = pieData.reduce((sum, d) => sum + d.value, 0);
-                    const pct = total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0;
+                  {pieData.map((entry, index) => {  // ✅ HAPUS .toSorted(), KARENA SUDAH SORT DI ATAS
+                  const total = pieData.reduce((sum, d) => sum + d.value, 0);
+                  const pct = total > 0 ? ((entry.value / total) * 100).toFixed(0) : 0;
                     
                     return (
                       <div key={index} className="flex items-center justify-between group">
@@ -2027,19 +2084,19 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-md">
                 <h2 className="text-lg font-bold mb-4 text-slate-900 dark:text-white">{editingId ? '✏️ Edit' : '➕ Tambah'} Transaksi</h2>
                 <div className="grid grid-cols-2 gap-2 mb-4">
-                  <button
-                    onClick={() => { setFormData('expense'); setFormData(p => ({ ...p, type: 'expense', category: 'makanan' })); }}
-                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'expense' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
-                  >
-                    💸 Pengeluaran
-                  </button>
-                  <button
-                    onClick={() => { setFormData('income'); setFormData(p => ({ ...p, type: 'income', category: 'gaji' })); }}
-                    className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'income' ? 'bg-green-500 text-white shadow-lg shadow-green-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
-                  >
-                    💰 Pemasukan
-                  </button>
-                </div>
+               <button
+                onClick={() => { setFormData(p => ({ ...p, type: 'expense', category: 'makanan' })); }}
+                className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'expense' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
+               >
+                💸 Pengeluaran
+               </button>
+               <button
+                onClick={() => { setFormData(p => ({ ...p, type: 'income', category: 'gaji' })); }}
+                className={`py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 ${formData.type === 'income' ? 'bg-green-500 text-white shadow-lg shadow-green-500/30' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
+               >
+                💰 Pemasukan
+               </button>
+             </div>
               
                 <div className="space-y-3">
                   <div>
@@ -2136,8 +2193,18 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
               value={item.qty || ''}
               onChange={(e) => {
                 const newItems = [...transactionItems];
-                newItems[idx].qty = parseInt(e.target.value) || 1;
+                const value = e.target.value;
+                // ✅ Izinkan kosong saat mengetik, parse hanya jika ada angka
+                newItems[idx].qty = value === '' ? 0 : parseInt(value) || 0;
                 setTransactionItems(newItems);
+              }}
+              onBlur={(e) => {
+                // ✅ Saat blur, pastikan minimal 1 jika kosong atau 0
+                const newItems = [...transactionItems];
+                if (!newItems[idx].qty || newItems[idx].qty < 1) {
+                  newItems[idx].qty = 1;
+                  setTransactionItems(newItems);
+                }
               }}
               placeholder="Qty"
               min="1"
@@ -2176,10 +2243,70 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
       + Tambah Item
     </button>
 
-    {itemsTotal > 0 && (
-      <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-slate-600 bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2">
-        <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Subtotal Rincian:</span>
-        <span className="text-sm font-extrabold text-blue-600 dark:text-blue-400">{formatCurrency(itemsTotal)}</span>
+    {/* ✅ CHECKBOX PAJAK */}
+    <div className="bg-slate-100 dark:bg-slate-700/50 rounded-lg p-3 space-y-2">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={includeTax}
+          onChange={(e) => setIncludeTax(e.target.checked)}
+          className="w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+        />
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+          🧾 Include Pajak
+        </span>
+      </label>
+
+      {/* Pilihan Rate Pajak (hanya muncul jika checkbox dicentang) */}
+      {includeTax && (
+        <div className="flex gap-2 pl-6">
+          <button
+            type="button"
+            onClick={() => setTaxRate('10')}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+              taxRate === '10'
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-white dark:bg-slate-600 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            10%
+          </button>
+          <button
+            type="button"
+            onClick={() => setTaxRate('11')}
+            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+              taxRate === '11'
+                ? 'bg-blue-500 text-white shadow-md'
+                : 'bg-white dark:bg-slate-600 text-slate-700 dark:text-slate-300'
+            }`}
+          >
+            11%
+          </button>
+        </div>
+      )}
+
+      {/* Display Pajak */}
+      {includeTax && taxAmount > 0 && (
+        <div className="flex justify-between items-center pl-6 pt-1">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            Pajak ({taxRate}%):
+          </span>
+          <span className="text-xs font-bold text-orange-600 dark:text-orange-400">
+            +{formatCurrency(taxAmount)}
+          </span>
+        </div>
+      )}
+    </div>
+
+    {/* Total Akhir (Subtotal + Pajak) */}
+    {includeTax && taxAmount > 0 && (
+      <div className="flex justify-between items-center bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2 border-2 border-green-300 dark:border-green-700">
+        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+          💰 Total (Termasuk Pajak):
+        </span>
+        <span className="text-sm font-extrabold text-green-600 dark:text-green-400">
+          {formatCurrency(itemsTotal)}
+        </span>
       </div>
     )}
   </div>
@@ -2966,8 +3093,22 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
   )}
 </div>
     <input type="text" value={formatNominalDisplay(budgetForm.limit)} onChange={e => setBudgetForm({ ...budgetForm, limit: parseNominal(e.target.value).toString() })}
-      placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
-      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+  placeholder="Rp 0" inputMode="numeric" pattern="[0-9]*"
+  className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+    {/* ✅ INPUT KETERANGAN BUDGET (OPSIONAL) */}
+<div>
+  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+    Keterangan <span className="text-slate-400 font-normal">(opsional)</span>
+  </label>
+  <input 
+    type="text" 
+    value={budgetForm.description} 
+    onChange={e => setBudgetForm({ ...budgetForm, description: e.target.value })}
+    placeholder={`Contoh: ${budgetForm.category === 'rekreasi' ? 'Liburan luar kota' : budgetForm.category === 'makanan' ? 'Makan siang kantor' : 'Keterangan budget...'}`}
+    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+  />
+</div>
+
     <div className="flex gap-2">
       <button onClick={editingBudget ? handleUpdateBudget : handleAddBudget} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">
           {editingBudget ? 'Update' : 'Simpan'}
@@ -2994,10 +3135,16 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                             <div className="flex justify-between items-start mb-2">
                               <div className="flex items-center gap-2">
                                 <span className="text-2xl">{cat?.icon}</span>
-                                <div>
-                                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">{cat?.name}</h3>
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatCurrency(spent)} / {formatCurrency(b.limit)}</p>
-                                </div>
+                               <div>
+                                <h3 className="font-bold text-sm text-slate-900 dark:text-white">{cat?.name}</h3>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatCurrency(spent)} / {formatCurrency(b.limit)}</p>
+                                {/* ✅ TAMPILKAN KETERANGAN JIKA ADA */}
+                                {b.description && (
+                                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5 italic truncate">
+                                    📝 {b.description}
+                                  </p>
+                                )}
+                              </div> 
                               </div>
                               <div className="flex gap-1.5">
                               <button onClick={() => handleEditBudget(b)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
@@ -3467,6 +3614,16 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
             {/* Budget Details */}
             <div className="space-y-3">
+              {/* ✅ KETERANGAN BUDGET */}
+              {viewingBudget.description && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-200 dark:border-blue-800">
+                  <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">📝 Keterangan</p>
+                  <p className="text-sm text-slate-900 dark:text-white leading-relaxed">
+                    {viewingBudget.description}
+                  </p>
+                </div>
+              )}
+
               <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
                 <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">Limit</p>
                 <p className="text-2xl font-bold text-slate-900 dark:text-white">
@@ -3492,14 +3649,15 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
             {/* Action Buttons */}
             <button 
               onClick={() => {
-                setEditingBudget(viewingBudget);
-                setViewingBudget(null);
-                setBudgetForm({
-                  category: viewingBudget.category,
-                  limit: viewingBudget.limit.toString()
-                });
-                setShowBudgetForm(true);
-              }}
+              setEditingBudget(viewingBudget);
+              setViewingBudget(null);
+              setBudgetForm({
+                category: viewingBudget.category,
+                limit: viewingBudget.limit.toString(),
+                description: viewingBudget.description || '' // ✅ TAMBAHKAN INI
+              });
+              setShowBudgetForm(true);
+            }}
               className="w-full bg-blue-500 text-white py-3 rounded-xl font-semibold active:scale-95 transition-transform shadow-lg shadow-blue-500/20"
             >
               ✏️ Edit Budget
