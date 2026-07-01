@@ -422,6 +422,8 @@ const [editingBookName, setEditingBookName] = useState('');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  // ✅ STATE BARU: Search Query untuk Riwayat
+  const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   // State untuk Budget
 const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -1002,7 +1004,22 @@ const payload = {
       return selectedBookIds.includes(t.book_id);
     })
     
-    .filter(t => !filterCategory || t.category === filterCategory)
+        .filter(t => !filterCategory || t.category === filterCategory)
+    // ✅ FILTER SEARCH (CASE & SPACE INSENSITIVE)
+    .filter(t => {
+      if (!searchQuery) return true;
+      
+      // Normalisasi: huruf kecil & hapus semua spasi
+      const q = searchQuery.toLowerCase().replace(/\s+/g, '');
+      if (!q) return true;
+
+      const targetDesc = (t.description || '').toLowerCase().replace(/\s+/g, '');
+      const targetNotes = (t.notes || '').toLowerCase().replace(/\s+/g, '');
+      const targetCat = (incomeCategories[t.category]?.name || expenseCategories[t.category]?.name || t.category || '').toLowerCase().replace(/\s+/g, '');
+      const targetPay = (paymentMethods[t.payment_method || 'cash']?.name || '').toLowerCase().replace(/\s+/g, '');
+
+      return targetDesc.includes(q) || targetNotes.includes(q) || targetCat.includes(q) || targetPay.includes(q);
+    })
     .sort((a, b) => {
     // ✅ PRIORITAS: Urutkan berdasarkan tanggal transaksi (date)
     const dateA = new Date(a.date).getTime();
@@ -1017,7 +1034,7 @@ const payload = {
     return timeB - timeA;
     });
     
-}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books]); 
+}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books, searchQuery]);
 // ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
   
 
@@ -2425,6 +2442,27 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                   </div>
                 )}
               </div>
+              
+              {/* ✅ SEARCH BAR BARU */}
+           <div className="relative">
+             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+             <input
+               type="text"
+               value={searchQuery}
+               onChange={(e) => setSearchQuery(e.target.value)}
+               placeholder="Cari deskripsi, kategori, catatan..."
+               className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-10 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 shadow-sm placeholder:text-slate-400"
+             />
+             {searchQuery && (
+               <button
+                 onClick={() => setSearchQuery('')}
+                 className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
+               >
+                 <X className="w-4 h-4 text-slate-400" />
+               </button>
+             )}
+           </div>
+
               {/* ✅ CUSTOM DROPDOWN KATEGORI - HISTORY (SAMA SEPERTI TAB INPUT) */}
 <div className="relative">
   <button
