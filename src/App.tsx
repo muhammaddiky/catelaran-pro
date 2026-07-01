@@ -200,6 +200,20 @@ const formatCompact = (amount: number): string => {
   return amount.toString();
 };
 
+// ✅ HELPER BARU: Format nominal khusus untuk Kalender (430k, 435,3k, 1,5jt)
+const formatCalendarAmount = (amount: number): string => {
+  if (amount === 0) return '';
+  if (amount >= 1000000) {
+    const val = amount / 1000000;
+    return val % 1 === 0 ? `${val}jt` : `${val.toFixed(1).replace('.', ',')}jt`;
+  }
+  if (amount >= 1000) {
+    const val = amount / 1000;
+    return val % 1 === 0 ? `${val}k` : `${val.toFixed(1).replace('.', ',')}k`;
+  }
+  return amount.toString();
+};
+
 const formatNominalDisplay = (amount: string): string => {
   if (!amount) return '';
   const numOnly = amount.replace(/\D/g, '');
@@ -2083,19 +2097,8 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                   </div>
                 </div>
               )}
-
-              <div className="bg-gradient-to-br from-amber-100 to-yellow-100 dark:from-amber-900/40 dark:to-yellow-900/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-4">
-                <h3 className="font-bold text-sm mb-2 flex items-center gap-1.5 text-amber-900 dark:text-amber-100">
-                  <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400" /> Saran AI
-                </h3>
-                <div className="space-y-1.5">
-                  {generateAdvice().map((a, i) => <p key={i} className="text-xs text-amber-900 dark:text-amber-100 leading-relaxed">{a}</p>)}
-                </div>
-              </div>
             </div>
           )}
-
-         
 
           {/* INPUT */}
           {activeTab === 'input' && (
@@ -2931,75 +2934,113 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 })()}
 </div>
 
-                  {/* Calendar Heatmap */}
-                  {(() => {
-                    const now = new Date();
-                    const daysToShow = 35;
-                    const days: { date: Date; amount: number; count: number }[] = [];
-                    for (let i = daysToShow - 1; i >= 0; i--) {
-                      const date = new Date(now);
-                      date.setDate(date.getDate() - i);
-                      date.setHours(0, 0, 0, 0);
-                      const dateStr = date.toISOString().split('T')[0];
-                      const dayTrans = transactions.filter(t => t.date === dateStr && t.type === 'expense');
-                      days.push({ date, amount: dayTrans.reduce((s, t) => s + t.amount, 0), count: dayTrans.length });
-                    }
-                    const maxAmount = Math.max(...days.map(d => d.amount), 1);
-                    const getColor = (amount: number) => {
-                      if (amount === 0) return isDark ? 'bg-slate-700' : 'bg-slate-200';
-                      const ratio = amount / maxAmount;
-                      if (ratio < 0.25) return 'bg-green-300 dark:bg-green-700';
-                      if (ratio < 0.5) return 'bg-yellow-300 dark:bg-yellow-600';
-                      if (ratio < 0.75) return 'bg-orange-400 dark:bg-orange-600';
-                      return 'bg-red-500 dark:bg-red-600';
-                    };
-                    const dayTotals = [0, 0, 0, 0, 0, 0, 0];
-                    const dayCounts = [0, 0, 0, 0, 0, 0, 0];
-                    transactions.filter(t => t.type === 'expense').forEach(t => {
-                      const day = parseLocalDate(t.date).getDay();
-                      dayTotals[day] += t.amount;
-                      dayCounts[day]++;
-                    });
-                    const dayAvg = dayTotals.map((t, i) => dayCounts[i] > 0 ? t / dayCounts[i] : 0);
-                    const maxDayAvg = Math.max(...dayAvg);
-                    const mostExpensiveDay = dayAvg.indexOf(maxDayAvg);
-                    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                    return (
-                      <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-                        <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">🗓️ Pola Pengeluaran (35 Hari)</h3>
-                        <div className="grid grid-cols-7 gap-1 mb-2">
-                          {['M', 'S', 'S', 'R', 'K', 'J', 'S'].map((d, i) => (
-                            <div key={i} className="text-[9px] text-center text-slate-500 dark:text-slate-400 font-medium">{d}</div>
-                          ))}
-                        </div>
-                        <div className="grid grid-cols-7 gap-1">
-                          {days.map((day, i) => (
-                            <div key={i} className={`aspect-square rounded ${getColor(day.amount)} transition-all`} title={`${format(day.date, 'dd MMM')}: ${formatCurrency(day.amount)} (${day.count} trans)`} />
-                          ))}
-                        </div>
-                        <div className="flex items-center justify-between mt-3 text-[10px]">
-                          <div className="flex items-center gap-1">
-                            <span className="text-slate-500 dark:text-slate-400">Hemat</span>
-                            <div className="w-3 h-3 rounded bg-green-300 dark:bg-green-700" />
-                            <div className="w-3 h-3 rounded bg-yellow-300 dark:bg-yellow-600" />
-                            <div className="w-3 h-3 rounded bg-orange-400 dark:bg-orange-600" />
-                            <div className="w-3 h-3 rounded bg-red-500 dark:bg-red-600" />
-                            <span className="text-slate-500 dark:text-slate-400">Boros</span>
-                          </div>
-                        </div>
-                        {transactions.length > 0 && (
-                          <div className="mt-3 p-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                            <p className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold mb-0.5">💡 Insight Pola</p>
-                            <p className="text-xs text-blue-900 dark:text-blue-200">
-                              Anda paling boros di hari <span className="font-bold">{dayNames[mostExpensiveDay]}</span> (rata-rata {formatCurrency(maxDayAvg)}/transaksi)
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
+   {/* ✅ KALENDER PENGELUARAN REAL-TIME (BULAN INI) */}
+{(() => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const daysInMonth = lastDay.getDate();
 
-                  {/* Smart Anomaly Detection */}
+  // ✅ Hitung total pengeluaran per tanggal di bulan ini
+  const dailyExpenses: Record<number, number> = {};
+  transactions.forEach(t => {
+    if (t.type === 'expense') {
+      const d = parseLocalDate(t.date);
+      if (d.getMonth() === month && d.getFullYear() === year) {
+        const dateKey = d.getDate();
+        dailyExpenses[dateKey] = (dailyExpenses[dateKey] || 0) + t.amount;
+      }
+    }
+  });
+
+  // ✅ Tentukan hari pertama bulan (Senin = 0, Minggu = 6)
+  let startDayOfWeek = firstDay.getDay(); // 0=Minggu, 1=Senin...
+  startDayOfWeek = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
+
+  // ✅ Buat array untuk grid kalender
+  const calendarDays: { day: number | null; isCurrentMonth: boolean }[] = [];
+  for (let i = 0; i < startDayOfWeek; i++) calendarDays.push({ day: null, isCurrentMonth: false });
+  for (let d = 1; d <= daysInMonth; d++) calendarDays.push({ day: d, isCurrentMonth: true });
+  while (calendarDays.length % 7 !== 0) calendarDays.push({ day: null, isCurrentMonth: false });
+
+  // ✅ Tentukan warna berdasarkan intensitas pengeluaran
+  const maxExpense = Math.max(...Object.values(dailyExpenses), 1);
+  const getColor = (amount: number) => {
+    if (amount === 0) return 'bg-slate-50 dark:bg-slate-800/50';
+    const ratio = amount / maxExpense;
+    if (ratio < 0.25) return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300';
+    if (ratio < 0.5) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300';
+    if (ratio < 0.75) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300';
+    return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300';
+  };
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
+      <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
+        🗓️ Kalender Pengeluaran ({format(now, 'MMMM yyyy', { locale: id })})
+      </h3>
+
+      {/* Header Hari (Senin - Minggu) */}
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map(d => (
+          <div key={d} className="text-[10px] text-center text-slate-500 dark:text-slate-400 font-bold py-1">{d}</div>
+        ))}
+      </div>
+
+      {/* Grid Kalender */}
+      <div className="grid grid-cols-7 gap-1">
+        {calendarDays.map((item, idx) => {
+          const amount = item.day ? (dailyExpenses[item.day] || 0) : 0;
+          const isToday = item.day === now.getDate();
+          const colorClass = item.day ? getColor(amount) : 'bg-transparent';
+
+          return (
+            <div
+              key={idx}
+              className={`aspect-square rounded-lg flex flex-col items-center justify-center p-1 border transition-all relative
+                ${colorClass}
+                ${isToday ? 'ring-2 ring-blue-500 dark:ring-blue-400 font-bold shadow-md' : 'border-slate-100 dark:border-slate-700'}
+                ${!item.isCurrentMonth ? 'opacity-0 pointer-events-none' : ''}
+              `}
+            >
+              {item.day && (
+                <>
+                  {/* Tanggal */}
+                  <span className={`text-[10px] leading-none ${isToday ? 'font-extrabold text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
+                    {item.day}
+                  </span>
+                  
+                  {/* Nominal Pengeluaran */}
+                  {amount > 0 && (
+                    <span className="text-[8px] sm:text-[9px] font-bold leading-tight mt-0.5 truncate w-full text-center">
+                      {formatCalendarAmount(amount)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend / Keterangan Warna */}
+      <div className="flex items-center justify-between mt-3 text-[10px]">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-500 dark:text-slate-400">Hemat</span>
+          <div className="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800" />
+          <div className="w-3 h-3 rounded bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800" />
+          <div className="w-3 h-3 rounded bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800" />
+          <div className="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800" />
+          <span className="text-slate-500 dark:text-slate-400">Boros</span>
+        </div>
+      </div>
+    </div>
+  );
+})()}               
+
+                  {/* Smart Anomaly Detection (FIXED: Per Kategori) */}
                   {(() => {
                     const expenseTrans = transactions.filter(t => t.type === 'expense');
                     if (expenseTrans.length < 5) {
@@ -3010,13 +3051,40 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                         </div>
                       );
                     }
-                    const avgAmount = expenseTrans.reduce((s, t) => s + t.amount, 0) / expenseTrans.length;
-                    const outliers = expenseTrans.filter(t => t.amount > avgAmount * 2.5).sort((a, b) => b.amount - a.amount).slice(0, 3);
-                    const anomalies = outliers.map(o => ({
-                      title: 'Transaksi Tidak Biasa',
-                      desc: `${expenseCategories[o.category]?.icon || '💸'} ${o.description} - ${formatCurrency(o.amount)} (${(o.amount / avgAmount).toFixed(1)}x rata-rata)`,
-                      severity: o.amount > avgAmount * 4 ? 'high' : 'medium',
-                    }));
+
+                    // ✅ LOGIKA BARU: Bandingkan dengan rata-rata KATEGORI YANG SAMA
+                    const outliers = expenseTrans
+                      .map(t => {
+                        // Cari semua transaksi lain di kategori yang sama
+                        const sameCategoryTrans = expenseTrans.filter(x => x.category === t.category && x.id !== t.id);
+                        
+                        // Jika belum ada cukup data di kategori ini, pakai threshold absolut (misal > 500rb)
+                        if (sameCategoryTrans.length < 2) {
+                          return { ...t, multiplier: t.amount > 500000 ? t.amount / 500000 : 0 };
+                        }
+                        
+                        // Hitung rata-rata kategori yang sama
+                        const catAvg = sameCategoryTrans.reduce((s, x) => s + x.amount, 0) / sameCategoryTrans.length;
+                        const multiplier = catAvg > 0 ? t.amount / catAvg : 0;
+                        
+                        return { ...t, multiplier, catAvg };
+                      })
+                      // Ambil yang multiplier-nya > 2.5x (atau > 500rb jika data masih sedikit)
+                      .filter(t => t.multiplier > 2.5) 
+                      .sort((a, b) => b.multiplier - a.multiplier)
+                      .slice(0, 3);
+
+                    const anomalies = outliers.map(o => {
+                      const isCategoryAvg = o.catAvg > 0;
+                      const baseLabel = isCategoryAvg ? `rata-rata ${expenseCategories[o.category]?.name || 'kategori ini'}` : 'threshold absolut';
+                      
+                      return {
+                        title: 'Transaksi Tidak Biasa',
+                        desc: `${expenseCategories[o.category]?.icon || '💸'} ${o.description} - ${formatCurrency(o.amount)} (${o.multiplier.toFixed(1)}x ${baseLabel})`,
+                        severity: o.multiplier > 4 ? 'high' : 'medium',
+                      };
+                    });
+
                     if (anomalies.length === 0) {
                       return (
                         <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-4 shadow-lg">
@@ -3028,6 +3096,7 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                         </div>
                       );
                     }
+
                     return (
                       <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
                         <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
