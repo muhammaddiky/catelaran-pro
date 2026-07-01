@@ -2129,7 +2129,13 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                   
                   {isCategoryDropdownOpen && (
                     <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
-                      {Object.entries(getCategories()).map(([key, category]) => (
+                      {Object.entries(getCategories())
+                        .sort(([, a], [, b]) => {
+                          if (a.name === 'Lainnya') return 1;
+                          if (b.name === 'Lainnya') return -1;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map(([key, category]) => (
                         <button
                           key={key}
                           onClick={() => {
@@ -2461,7 +2467,13 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
       <div className="px-3 py-1.5 text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-t border-slate-100 dark:border-slate-700">
         💰 PEMASUKAN
       </div>
-      {Object.entries(incomeCategories).map(([key, cat]) => (
+      {Object.entries(incomeCategories)
+            .sort(([, a], [, b]) => {
+              if (a.name === 'Lainnya') return 1;
+              if (b.name === 'Lainnya') return -1;
+              return a.name.localeCompare(b.name);
+            })
+            .map(([key, cat]) => (
         <button
           key={key}
           onClick={() => {
@@ -2483,7 +2495,13 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
       <div className="px-3 py-1.5 text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-t border-slate-100 dark:border-slate-700">
         💸 PENGELUARAN
       </div>
-      {Object.entries(expenseCategories).map(([key, cat]) => (
+      {Object.entries(expenseCategories)
+          .sort(([, a], [, b]) => {
+            if (a.name === 'Lainnya') return 1;
+            if (b.name === 'Lainnya') return -1;
+            return a.name.localeCompare(b.name);
+          })
+          .map(([key, cat]) => (
         <button
           key={key}
           onClick={() => {
@@ -3074,7 +3092,13 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
   {isBudgetCategoryDropdownOpen && (
     <div className="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
-      {Object.entries(expenseCategories).map(([key, cat]) => (
+      {Object.entries(expenseCategories)
+      .sort(([, a], [, b]) => {
+        if (a.name === 'Lainnya') return 1;
+        if (b.name === 'Lainnya') return -1;
+        return a.name.localeCompare(b.name);
+          })
+          .map(([key, cat]) => (
   <button
     key={key}
     onClick={() => {
@@ -3338,7 +3362,13 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
   {isRecurringCategoryDropdownOpen && (
     <div className="absolute z-30 w-full mt-1 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 max-h-60 overflow-y-auto">
-      {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories).map(([key, cat]) => (
+      {Object.entries(recurringForm.type === 'income' ? incomeCategories : expenseCategories)
+          .sort(([, a], [, b]) => {
+            if (a.name === 'Lainnya') return 1;
+            if (b.name === 'Lainnya') return -1;
+            return a.name.localeCompare(b.name);
+          })
+          .map(([key, cat]) => (
         <button
           key={key}
           onClick={() => {
