@@ -112,6 +112,7 @@ const expenseCategories: Record<string, CategoryConfig> = {
   cicilan: { id: 'cicilan', name: 'Cicilan', shortName: 'Ccl', icon: '💳', color: 'text-blue-700', bgColor: 'bg-blue-100', type: 'expense' },
   asuransi: { id: 'asuransi', name: 'Asuransi', shortName: 'Asr', icon: '🛡️', color: 'text-indigo-500', bgColor: 'bg-indigo-50', type: 'expense' },
   investasi_exp: { id: 'investasi_exp', name: 'Investasi', shortName: 'Inv', icon: '💰', color: 'text-green-600', bgColor: 'bg-green-100', type: 'expense' },
+  lainnya_exp: { id: 'lainnya_exp', name: 'Lainnya', shortName: 'Lain', icon: '🤷‍♂️', color: 'text-yellow-600', bgColor: 'bg-yellow-100', type: 'expense' },
 };
 
 // ✅ KONFIGURASI METODE PEMBAYARAN (3 KATEGORI)
@@ -162,6 +163,7 @@ const categoryExamples: Record<string, string[]> = {
   kesehatan: ['Beli obat apotek', 'Konsultasi dokter', 'Vitamin & suplemen'],
   cicilan: ['Bayar Paylater', 'Cicilan motor', 'Cicilan rumah KPR'],
   asuransi: ['Premi asuransi jiwa', 'BPJS Kesehatan', 'Asuransi mobil'],
+  lainnya_exp: ['beli apa??..', 'bayar apa??', 'Biaya tak terduga'],
   investasi_exp: ['Beli saham BBCA', 'Top up reksadana', 'Nabung emas'],
   hiburan: ['Nonton bioskop', 'Netflix/Spotify', 'Game & langganan'],
   belanja: ['Baju baru', 'Sepatu kerja', 'Tas'],
