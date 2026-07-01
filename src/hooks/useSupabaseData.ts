@@ -95,35 +95,18 @@ export function useSupabaseData(isFamilyMode: boolean = false) {
       
       setBooks([newBook]);
       setActiveBook(newBook);
-        } else {
+    } else {
       setBooks(data);
       const savedBookId = localStorage.getItem(`active_book_${user.id}`);
       const savedBook = data.find(b => b.id === savedBookId);
       const defaultBook = data.find(b => b.is_default) || data[0];
-      
-      // ✅ PENTING: Tentukan buku yang dipilih dulu
-      const selectedBook = savedBook || defaultBook;
-
-      // 🐛 DEBUGGING LOG (Versi Lebih Detail)
-      console.log('📚 [fetchBooks] Active book set to:', {
-        savedBookId: savedBookId,
-        savedBookName: savedBook?.name || '⚠️ NOT FOUND (ID di localStorage tidak valid)',
-        selectedBookName: selectedBook?.name,
-        selectedBookId: selectedBook?.id,
-        allBooks: data.map(b => `${b.name} (${b.id})`) // List semua buku yang ada
-      });
-
-      setActiveBook(selectedBook);
+      setActiveBook(savedBook || defaultBook);
     }
-    
   } catch (err) {
     console.error('❌ Fetch books exception:', err);
     setLoading(false);
   }
-
-  
 }, [user]);
-
 
   // ========== FETCH DATA (FILTER BY ACTIVE BOOK / FAMILY MODE) ==========
 const fetchData = useCallback(async () => {
@@ -238,38 +221,28 @@ useEffect(() => {
 
   // ========== BOOK CRUD ==========
   const createBook = async (name: string, icon: string, color: string) => {
-  if (!user) return null;
-  if (books.length >= 10) { toast.error('Maksimal 10 buku!'); return null; }
-  const { data, error } = await supabase
-    .from('books')
-    .insert({ user_id: user.id, name, icon, color, is_default: false })
-    .select()
-    .single();
-  if (error) { 
-    console.error('❌ Create book error:', error);
-    toast.error('Gagal buat buku'); 
-    return null; 
-  }
-  
-  // ✅ PENTING: Set sebagai active book DAN simpan ke localStorage
-  setBooks(prev => [...prev, data]);
-  setActiveBook(data);
-  
-  // ✅ FIX: Simpan ke localStorage agar tidak kembali ke buku lama saat re-render
-  localStorage.setItem(`active_book_${user.id}`, data.id);
-  
-  toast.success(`Buku "${name}" dibuat! 📚`);
-  return data;
-};
+    if (!user) return null;
+    if (books.length >= 10) { toast.error('Maksimal 10 buku!'); return null; }
+    const { data, error } = await supabase
+      .from('books')
+      .insert({ user_id: user.id, name, icon, color, is_default: false })
+      .select()
+      .single();
+    if (error) { toast.error('Gagal buat buku'); return null; }
+    setBooks(prev => [...prev, data]);
+    setActiveBook(data);
+    toast.success(`Buku "${name}" dibuat! 📚`);
+    return data;
+  };
 
   const renameBook = async (id: string, newName: string) => {
-  const { data, error } = await supabase.from('books').update({ name: newName }).eq('id', id).select().single();
-  if (error) { toast.error('Gagal rename'); return null; }
-  setBooks(prev => prev.map(b => b.id === id ? data : b));
-  if (activeBook?.id === id) setActiveBook(data);
-  toast.success('Buku di-rename! ✏️');
-  return data;
-};
+    const { data, error } = await supabase.from('books').update({ name: newName }).eq('id', id).select().single();
+    if (error) { toast.error('Gagal rename'); return null; }
+    setBooks(prev => prev.map(b => b.id === id ? data : b));
+    if (activeBook?.id === id) setActiveBook(data);
+    toast.success('Buku di-rename! ✏️');
+    return data;
+  };
 
   const deleteBook = async (id: string) => {
     const book = books.find(b => b.id === id);
@@ -293,7 +266,7 @@ useEffect(() => {
   };
 
   // ========== TRANSACTION CRUD ==========
- const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>) => {
+ const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'> & { id?: string }) => {
   if (!user || !activeBook) {
     console.error('❌ Missing user or activeBook');
     return null;
@@ -368,7 +341,7 @@ const deleteTransaction = async (id: string) => {
       setBudgets(prev => [...prev, data]);
       return data;
 };
-    const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string }) => {
+    const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string; description?: string }) => {
     const { data, error } = await supabase.from('budgets').update(updates).eq('id', id).select().single();
     if (error) { 
       toast.error('Gagal update budget'); 

@@ -422,12 +422,12 @@ useEffect(() => {
 
 
 // State untuk Book Manager
-const [showBookManager, setShowBookManager] = useState(false);
-const [newBookName, setNewBookName] = useState('');
-const [newBookIcon, setNewBookIcon] = useState('📗');
-const [newBookColor, setNewBookColor] = useState('green');
-const [editingBookId, setEditingBookId] = useState<string | null>(null);
-const [editingBookName, setEditingBookName] = useState('');
+  const [showBookManager, setShowBookManager] = useState(false);
+  const [newBookName, setNewBookName] = useState('');
+  const [newBookIcon, setNewBookIcon] = useState('📗');
+  const [newBookColor, setNewBookColor] = useState('green');
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  const [editingBookName, setEditingBookName] = useState('');
   
   
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -439,29 +439,30 @@ const [editingBookName, setEditingBookName] = useState('');
   // ✅ STATE BARU: Search Query untuk Riwayat
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  // State untuk Budget
-const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
-const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
+  // ✅ STATE BARU: Menyimpan data transaksi yang baru dihapus untuk fitur Undo
+  const deletedTxMapRef = useRef<Record<string, Transaction>>({});
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
+  const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
 
-// State untuk Goals
-const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
-const [viewingGoal, setViewingGoal] = useState<FinancialGoal | null>(null);
-const [viewingGoalHistory, setViewingGoalHistory] = useState<string | null>(null);
-const [fundingGoalId, setFundingGoalId] = useState<string | null>(null);
-const [fundingAmount, setFundingAmount] = useState('');
-const [fundingDate, setFundingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-const [fundingTime, setFundingTime] = useState(format(new Date(), 'HH:mm')); 
-const [fundingNote, setFundingNote] = useState('');
-const [fundingAsExpense, setFundingAsExpense] = useState(false);
-const [editingContributionId, setEditingContributionId] = useState<string | null>(null);
-const [editingContributionAmount, setEditingContributionAmount] = useState('');
-const [editingContributionDate, setEditingContributionDate] = useState('');
-const [editingContributionTime, setEditingContributionTime] = useState('');
-const [editingContributionNote, setEditingContributionNote] = useState('');
+  // State untuk Goals
+  const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
+  const [viewingGoal, setViewingGoal] = useState<FinancialGoal | null>(null);
+  const [viewingGoalHistory, setViewingGoalHistory] = useState<string | null>(null);
+  const [fundingGoalId, setFundingGoalId] = useState<string | null>(null);
+  const [fundingAmount, setFundingAmount] = useState('');
+  const [fundingDate, setFundingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [fundingTime, setFundingTime] = useState(format(new Date(), 'HH:mm')); 
+  const [fundingNote, setFundingNote] = useState('');
+  const [fundingAsExpense, setFundingAsExpense] = useState(false);
+  const [editingContributionId, setEditingContributionId] = useState<string | null>(null);
+  const [editingContributionAmount, setEditingContributionAmount] = useState('');
+  const [editingContributionDate, setEditingContributionDate] = useState('');
+  const [editingContributionTime, setEditingContributionTime] = useState('');
+  const [editingContributionNote, setEditingContributionNote] = useState('');
 
-// State untuk Recurring
-const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
-const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | null>(null);
+  // State untuk Recurring
+  const [editingRecurring, setEditingRecurring] = useState<RecurringTransaction | null>(null);
+  const [viewingRecurring, setViewingRecurring] = useState<RecurringTransaction | null>(null);
 
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
   const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('keuangan_scriptUrl') || '');
@@ -903,36 +904,112 @@ const payload = {
     setActiveTab('history');
 };
 
- const handleDelete = async (id: string) => {
-  if (!window.confirm('⚠️ Hapus transaksi ini?\n\nData tidak dapat dikembalikan.')) return;
-  
-  // ✅ LANGKAH 1: Cari transaksi yang akan dihapus untuk cek apakah terkait Goal
-  const transactionToDelete = transactions.find(t => t.id === id);
-  
-  if (transactionToDelete) {
-    // ✅ LANGKAH 2: Cek apakah transaksi ini adalah "Tabungan Goal" dengan tag [ref:xxx]
-    const refMatch = transactionToDelete.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
-    
-    if (refMatch && refMatch[1]) {
-      const contributionId = refMatch[1];
-      
-      // ✅ LANGKAH 3: Hapus goal contribution terkait (ini akan otomatis kurangi current_amount)
-      const contribDeleted = await deleteGoalContribution(contributionId);
-      
-      if (contribDeleted) {
-        notify.success('Transaksi & riwayat tabungan Goal berhasil dihapus 🗑️');
-        // ✅ Refresh agar progress bar langsung update
-        if (refresh) await refresh();
-        return; // Keluar karena deleteGoalContribution sudah hapus transaksi juga
-      }
+ // ✅ FUNGSI UTAMA: Hapus dengan Konfirmasi & Fitur Urungkan
+const handleDelete = async (id: string) => {
+  const txToDelete = transactions.find(t => t.id === id);
+  if (!txToDelete) return;
+
+  const refMatch = txToDelete.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
+  const isGoalTx = !!refMatch;
+
+  const confirmMsg = isGoalTx 
+    ? '⚠️ Hapus transaksi tabungan Goal ini?\n\nRiwayat tabungan dan progress Goal juga akan ikut dikurangi. Tindakan ini TIDAK BISA diurungkan.'
+    : '⚠️ Yakin ingin menghapus transaksi ini?\n\nAnda masih bisa mengurungkannya dalam 10 detik.';
+
+  if (!window.confirm(confirmMsg)) return;
+
+  if (isGoalTx && refMatch) {
+    const contributionId = refMatch[1];
+    const contribDeleted = await deleteGoalContribution(contributionId);
+    if (contribDeleted) {
+      notify.success('Transaksi & riwayat Goal berhasil dihapus 🗑️');
+      if (refresh) await refresh();
     }
+    return;
   }
-  
-  // ✅ LANGKAH 4: Jika bukan transaksi Goal, hapus seperti biasa
+
   const ok = await deleteTransaction(id);
+  
   if (ok) {
-    notify.success('Transaksi berhasil dihapus 🗑️');
+    const toastId = toast(
+      <div className="flex items-center justify-between gap-3 w-full">
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-4 h-4 text-red-500 flex-shrink-0" />
+          <span className="text-sm font-bold">Transaksi dihapus</span>
+        </div>
+        <button
+          onClick={() => {
+            // ✅ FIX: Ambil data dari Ref, BUKAN dari State
+            const tx = deletedTxMapRef.current[toastId];
+            handleUndoDelete(toastId, tx);
+            toast.dismiss(toastId);
+          }}
+          className="px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 rounded-full hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors whitespace-nowrap active:scale-95"
+        >
+          Urungkan
+        </button>
+      </div>,
+      {
+        duration: 10000,
+        style: {
+          minWidth: '280px', padding: '12px 16px',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+        }
+      }
+    );
+
+    // ✅ FIX: Simpan ke Ref agar bisa dibaca oleh onClick toast
+    deletedTxMapRef.current[toastId] = txToDelete;
   }
+};
+
+// ✅ FUNGSI UNTUK MENGEMBALIKAN TRANSAKSI YANG DIHAPUS (FIXED: BYPASS activeBook)
+const handleUndoDelete = async (toastId: string, tx: Transaction) => {
+  // ✅ Logging untuk debug jika masih gagal
+  if (!tx || !user) {
+    console.error('❌ Undo gagal: Data transaksi atau User tidak ditemukan!', { tx, user });
+    toast.error('Data transaksi tidak valid untuk diurungkan');
+    return;
+  }
+
+  try {
+    console.log('🔄 Mengurungkan penghapusan untuk:', tx.description, '| Book ID:', tx.book_id);
+    
+    // Insert langsung ke Supabase
+    const { data, error } = await supabase.from('transactions').insert({
+      user_id: user.id,
+      book_id: tx.book_id || activeBook?.id, // Pastikan book_id ada
+      date: tx.date,
+      type: tx.type,
+      category: tx.category,
+      description: tx.description,
+      amount: tx.amount,
+      notes: tx.notes || null,
+      payment_method: tx.payment_method || 'cash',
+    }).select().single();
+
+    if (error) {
+      console.error('❌ Supabase Insert Error:', error);
+      toast.error('Gagal restore: ' + error.message);
+      return;
+    }
+
+    console.log('✅ Transaksi berhasil di-restore:', data);
+    toast.success('Transaksi berhasil diurungkan! ✅', { duration: 2000 });
+    
+    // ✅ Paksa refresh agar UI (termasuk nominal & chart) langsung sinkron
+    if (refresh) await refresh();
+    
+  } catch (error) {
+    console.error('❌ Undo Exception:', error);
+    toast.error('Terjadi kesalahan sistem saat mengurungkan');
+  }
+
+  // Bersihkan dari ref setelah selesai
+  delete deletedTxMapRef.current[toastId];
 };
 
   const handleEdit = (t: Transaction) => {
