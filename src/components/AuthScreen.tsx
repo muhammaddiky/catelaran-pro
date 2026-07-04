@@ -70,8 +70,8 @@ export const AuthScreen: React.FC = () => {
           toast.success('✅ Akun berhasil dibuat!');
           toast(
             <div className="text-sm">
-              <p className="font-semibold mb-1">📧 Email: <span className="font-mono">{email}</span></p>
-              <p className="font-semibold">🔑 Password: <span className="font-mono">{password}</span></p>
+              <p className="font-semibold mb-1">📧 Email: <span className="font-mono">{email.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span></p>
+              <p className="font-semibold">🔑 Password: <span className="font-mono">{'•'.repeat(password.length)}</span></p>
               <p className="text-xs mt-2 text-blue-300">Silakan login dengan kredensial di atas</p>
             </div>,
             { duration: 15000 } // Tampilkan 15 detik

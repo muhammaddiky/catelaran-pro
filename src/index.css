@@ -107,3 +107,77 @@ button[type="button"] {
 html.dark {
   background-color: #0f172a; /* slate-900 */
 }
+
+/* ===== REACT DATEPICKER DARK MODE - PERBAIKAN KONTRAS ===== */
+
+/* Background calendar */
+.dark .react-datepicker {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Header (bulan & tahun) */
+.dark .react-datepicker__header {
+  background-color: #1e293b !important;
+  border-bottom-color: #334155 !important;
+}
+
+/* Nama hari (Sen, Sel, Rab...) */
+.dark .react-datepicker__day-name {
+  color: #94a3b8 !important;
+  font-weight: 600 !important;
+}
+
+/* ✅ Angka tanggal - PERBAIKAN UTAMA */
+.dark .react-datepicker__day {
+  color: #e2e8f0 !important; /* Warna terang agar terlihat di background gelap */
+  font-weight: 500 !important;
+}
+
+/* Hover tanggal */
+.dark .react-datepicker__day:hover {
+  background-color: #334155 !important;
+  color: #ffffff !important;
+}
+
+/* Tanggal yang dipilih */
+.dark .react-datepicker__day--selected,
+.dark .react-datepicker__day--keyboard-selected {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Tanggal hari ini */
+.dark .react-datepicker__day--today {
+  color: #3b82f6 !important;
+  font-weight: 700 !important;
+  text-decoration: underline !important;
+}
+
+/* Tanggal di luar bulan ini (pudar) */
+.dark .react-datepicker__day--outside-month {
+  color: #475569 !important;
+  opacity: 0.5 !important;
+}
+
+/* Tombol navigasi bulan (< >) */
+.dark .react-datepicker__navigation-icon::before {
+  border-color: #94a3b8 !important;
+}
+
+/* Dropdown tahun & bulan */
+.dark select.react-datepicker__year-select,
+.dark select.react-datepicker__month-select {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+  border-radius: 6px !important;
+  border: 1px solid #475569 !important;
+}
+
+/* Current month label */
+.dark .react-datepicker__current-month {
+  color: #f1f5f9 !important;
+  font-weight: 700 !important;
+}

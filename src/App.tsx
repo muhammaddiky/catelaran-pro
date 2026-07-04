@@ -20,6 +20,8 @@ import { supabase } from './lib/supabase';
 import { SplashScreen } from './components/SplashScreen';
 import { addMonths } from 'date-fns'; // ✅ TAMBAHKAN IMPORT
 import { ErrorBoundary } from './components/ErrorBoundary';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css'; // ✅ WAJIB: CSS default
 
 // ==================== TYPES ====================
 interface Transaction {
@@ -247,16 +249,29 @@ export default function CatanKeuangan() {
   const [isBudgetCategoryDropdownOpen, setIsBudgetCategoryDropdownOpen] = useState(false);
   const [isRecurringCategoryDropdownOpen, setIsRecurringCategoryDropdownOpen] = useState(false);
   const [isRecurringFrequencyDropdownOpen, setIsRecurringFrequencyDropdownOpen] = useState(false);
-  // ✅ STATE BARU: Rincian Item Transaksi
-const [transactionItems, setTransactionItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
-const [showItemDetails, setShowItemDetails] = useState(false);
-// ✅ STATE UNTUK CHART READY (menghilangkan warning Recharts)
-const [chartReady, setChartReady] = useState(false);
-const bookManagerRef = useRef<HTMLDivElement>(null);
-const [loadingTimeout, setLoadingTimeout] = useState(false);
-// ✅ STATE BARU: Pajak
-const [includeTax, setIncludeTax] = useState(false);
-const [taxRate, setTaxRate] = useState<'10' | '11'>('11');
+      // ✅ STATE BARU: Rincian Item Transaksi
+    const [transactionItems, setTransactionItems] = useState<Array<{ name: string; qty: number; price: number }>>([]);
+    const [showItemDetails, setShowItemDetails] = useState(false);
+    // ✅ STATE UNTUK CHART READY (menghilangkan warning Recharts)
+    const [chartReady, setChartReady] = useState(false);
+    const bookManagerRef = useRef<HTMLDivElement>(null);
+    const [loadingTimeout, setLoadingTimeout] = useState(false);
+    // ✅ STATE BARU: Pajak
+    const [includeTax, setIncludeTax] = useState(false);
+    const [taxRate, setTaxRate] = useState<'10' | '11'>('11');
+
+    // ========== STATE UNTUK SALDO BULANAN ==========
+    const [showSaldoAwalModal, setShowSaldoAwalModal] = useState(false);
+    const [showSaldoAkhirModal, setShowSaldoAkhirModal] = useState(false);
+    const [saldoAwalForm, setSaldoAwalForm] = useState({
+      mode: 'prev' as 'prev' | 'manual', // 'prev' = dari bulan lalu, 'manual' = input manual
+      amount: '',
+    });
+    const [saldoAkhirForm, setSaldoAkhirForm] = useState({
+      amount: '',
+    });
+    const [showSaldoAwal, setShowSaldoAwal] = useState(true);
+    const [showSaldoAkhir, setShowSaldoAkhir] = useState(true);
 
 
 
@@ -364,6 +379,7 @@ addBudget, updateBudget, deleteBudget,
 addGoal, updateGoal, deleteGoal,
 addRecurring, updateRecurring, deleteRecurring,
 goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, 
+monthlyBalances, saveMonthlyBalance, calculatePreviousMonthClosingBalance, getCurrentMonthBalance,
 refresh// ✅ TAMBAHKAN BARIS INI
 } = useSupabaseData(isFamilyMode);
 
@@ -865,6 +881,75 @@ const paymentBarData = useMemo(() => {
   }
 };
 
+// ✅ HANDLER SALDO BULANAN
+const handleSaveSaldoAwal = async () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  
+  let amount = 0;
+  
+  if (saldoAwalForm.mode === 'prev') {
+    amount = calculatePreviousMonthClosingBalance(year, month);
+  } else {
+    amount = parseNominal(saldoAwalForm.amount);
+  }
+  
+  if (amount < 0) {
+    notify.error('Saldo awal tidak boleh negatif');
+    return;
+  }
+  
+  const currentBalance = getCurrentMonthBalance();
+  const closingBalance = currentBalance?.closing_balance || 0;
+  
+  const result = await saveMonthlyBalance(year, month, amount, closingBalance);
+  
+  if (result) {
+    notify.success('Saldo awal berhasil disimpan! 💰');
+    setShowSaldoAwalModal(false);
+    setSaldoAwalForm({ mode: 'prev', amount: '' });
+  }
+};
+
+  const handleSaveSaldoAkhir = async () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  
+  // ✅ PERBAIKAN: Jika input kosong, gunakan hitungan otomatis
+  let amount = 0;
+  if (saldoAkhirForm.amount === '' || saldoAkhirForm.amount.trim() === '') {
+    // Hitung otomatis: Saldo Awal + Pemasukan - Pengeluaran
+    const currentBalance = getCurrentMonthBalance();
+    const openingBalance = currentBalance?.opening_balance || 0;
+    amount = openingBalance + monthlyIncome - monthlyExpense;
+    
+    console.log('💡 Menggunakan hitungan otomatis:', amount);
+  } else {
+    // Input manual
+    amount = parseNominal(saldoAkhirForm.amount);
+    console.log('✏️ Menggunakan input manual:', amount);
+  }
+  
+  if (amount < 0) {
+    notify.error('Saldo akhir tidak boleh negatif');
+    return;
+  }
+  
+  const currentBalance = getCurrentMonthBalance();
+  const openingBalance = currentBalance?.opening_balance || 0;
+  
+  const result = await saveMonthlyBalance(year, month, openingBalance, amount);
+  
+  if (result) {
+    notify.success('Saldo akhir berhasil disimpan! 💵');
+    setShowSaldoAkhirModal(false);
+    setSaldoAkhirForm({ amount: '' });
+  }
+};
+
+
   const handleAddTransaction = async () => {
   if (!formData.description || !formData.amount) { notify.error('Deskripsi & nominal wajib diisi!'); return; }
     // ✅ Gabungkan items + tax info ke notes
@@ -981,7 +1066,7 @@ const handleUndoDelete = async (toastId: string, tx: Transaction) => {
     // Insert langsung ke Supabase
     const { data, error } = await supabase.from('transactions').insert({
       user_id: user.id,
-      book_id: tx.book_id || activeBook?.id, // Pastikan book_id ada
+      book_id: tx.book_id ?? activeBook?.id ?? (books[0]?.id || ''),// Pastikan book_id ada
       date: tx.date,
       type: tx.type,
       category: tx.category,
@@ -1944,35 +2029,60 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
                   </div>
                   <p className="text-sm font-bold text-white break-words">{formatCurrency(monthlyExpense).replace('Rp', 'Rp ')}</p>
                 </div>
-                <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-4 shadow-lg shadow-purple-500/20">
+                {/* ✅ SALDO AWAL - BARU! */}
+                <div 
+                  className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-4 shadow-lg shadow-purple-500/20 cursor-pointer active:scale-95 transition-transform"
+                  onClick={() => setShowSaldoAwalModal(true)}
+                >
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-purple-100" />
-                      <p className="text-[11px] text-purple-50 font-medium">Tabungan</p>
+                      <DollarSign className="w-3.5 h-3.5 text-purple-100" />
+                      <p className="text-[11px] text-purple-50 font-medium">Saldo Awal</p>
                     </div>
                     <button
-                      onClick={() => setShowSavings(!showSavings)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSaldoAwal(!showSaldoAwal);
+                      }}
                       className="p-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-full"
                     >
-                      {showSavings ? (
-                        <Eye className="w-4 h-4 text-purple-100" />
-                      ) : (
-                        <EyeOff className="w-4 h-4 text-purple-100" />
-                      )}
+                      {showSaldoAwal ? <Eye className="w-4 h-4 text-purple-100" /> : <EyeOff className="w-4 h-4 text-purple-100" />}
                     </button>
                   </div>
                   <p className="text-sm font-bold text-white break-words">
-                    {showSavings 
-                      ? formatCurrency(savings).replace('Rp', 'Rp ') 
+                    {showSaldoAwal 
+                      ? formatCurrency(getCurrentMonthBalance()?.opening_balance || 0).replace('Rp', 'Rp ')
                       : '••••••••'}
                   </p>
+                  <p className="text-[9px] text-purple-100 mt-1">Tap untuk edit</p>
                 </div>
-                <div className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl p-4 shadow-lg shadow-blue-500/20">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <TrendingUp className="w-3.5 h-3.5 text-blue-100" />
-                    <p className="text-[11px] text-blue-50 font-medium">Status</p>
+
+                {/* ✅ SALDO AKHIR - BARU! */}
+                <div 
+                  className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl p-4 shadow-lg shadow-blue-500/20 cursor-pointer active:scale-95 transition-transform"
+                  onClick={() => setShowSaldoAkhirModal(true)}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-blue-100" />
+                      <p className="text-[11px] text-blue-50 font-medium">Saldo Akhir</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowSaldoAkhir(!showSaldoAkhir);
+                      }}
+                      className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full"
+                    >
+                      {showSaldoAkhir ? <Eye className="w-4 h-4 text-blue-100" /> : <EyeOff className="w-4 h-4 text-blue-100" />}
+                    </button>
                   </div>
-                  <p className="text-sm font-bold text-white">{savings > 0 ? '✅ Positif' : '⚠️ Negatif'}</p>
+                  <p className="text-sm font-bold text-white break-words">
+                    {showSaldoAkhir 
+                      ? formatCurrency(getCurrentMonthBalance()?.closing_balance || 0).replace('Rp', 'Rp ')
+                      : '••••••••'}
+                  </p>
+                  <p className="text-[9px] text-blue-100 mt-1">Tap untuk edit</p>
                 </div>
               </div>
 
@@ -2199,9 +2309,40 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
               
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
-                    <input type="date" value={formData.date} onChange={e => setFormData(p => ({ ...p, date: e.target.value }))}
-                      className="w-full min-w-0 bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500" />
+                   <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
+<div className="relative">
+  <DatePicker
+    selected={formData.date ? new Date(formData.date + 'T12:00:00') : new Date()}
+    onChange={(date: Date | null) => {
+      if (date && !isNaN(date.getTime())) {
+        // ✅ PENTING: Gunakan getFullYear/getMonth/getDate (bukan toISOString)
+        // untuk menghindari timezone shift
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const newDateStr = `${y}-${m}-${d}`;
+        
+        // ✅ DEBUG: Pastikan onChange ter-trigger
+        console.log(' DatePicker onChange triggered:', newDateStr);
+        
+        setFormData(prev => {
+          console.log('📝 Updating formData.date from', prev.date, 'to', newDateStr);
+          return { ...prev, date: newDateStr };
+        });
+      }
+    }}
+    dateFormat="dd MMMM yyyy"
+    locale={id}
+    showYearDropdown
+    dropdownMode="select"
+    className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+    calendarClassName={`!bg-white dark:!bg-slate-800 !border-slate-200 dark:!border-slate-700 !rounded-xl !shadow-xl ${isDark ? 'dark-calendar' : ''}`}
+    wrapperClassName="w-full"
+    popperPlacement="bottom-start"
+    showPopperArrow={false}
+  />
+  <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+</div> 
                   </div>
                   <div>
                 <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Kategori</label>
@@ -4234,12 +4375,39 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
       {/* Input Tanggal */}
       <div>
         <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
-        <input
-          type="date"
-          value={editingContributionDate}
-          onChange={(e) => setEditingContributionDate(e.target.value)}
-          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white"
-        />
+<div className="relative">
+  <DatePicker
+    selected={formData.date ? new Date(formData.date + 'T12:00:00') : new Date()}
+    onChange={(date: Date | null) => {
+      if (date && !isNaN(date.getTime())) {
+        // ✅ PENTING: Gunakan getFullYear/getMonth/getDate (bukan toISOString)
+        // untuk menghindari timezone shift
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const newDateStr = `${y}-${m}-${d}`;
+        
+        // ✅ DEBUG: Pastikan onChange ter-trigger
+        console.log(' DatePicker onChange triggered:', newDateStr);
+        
+        setFormData(prev => {
+          console.log('📝 Updating formData.date from', prev.date, 'to', newDateStr);
+          return { ...prev, date: newDateStr };
+        });
+      }
+    }}
+    dateFormat="dd MMMM yyyy"
+    locale={id}
+    showYearDropdown
+    dropdownMode="select"
+    className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+    calendarClassName={`!bg-white dark:!bg-slate-800 !border-slate-200 dark:!border-slate-700 !rounded-xl !shadow-xl ${isDark ? 'dark-calendar' : ''}`}
+    wrapperClassName="w-full"
+    popperPlacement="bottom-start"
+    showPopperArrow={false}
+  />
+  <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+</div>
       </div>
 
       {/* Input Waktu */}
@@ -4346,16 +4514,40 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
       {/* Input Tanggal */}
       <div>
-        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
-          Tanggal
-        </label>
-        <input 
-          type="date" 
-          value={fundingDate} 
-          onChange={(e) => setFundingDate(e.target.value)}
-          max={format(new Date(), 'yyyy-MM-dd')}
-          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" 
-        />
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal</label>
+<div className="relative">
+  <DatePicker
+    selected={formData.date ? new Date(formData.date + 'T12:00:00') : new Date()}
+    onChange={(date: Date | null) => {
+      if (date && !isNaN(date.getTime())) {
+        // ✅ PENTING: Gunakan getFullYear/getMonth/getDate (bukan toISOString)
+        // untuk menghindari timezone shift
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        const newDateStr = `${y}-${m}-${d}`;
+        
+        // ✅ DEBUG: Pastikan onChange ter-trigger
+        console.log(' DatePicker onChange triggered:', newDateStr);
+        
+        setFormData(prev => {
+          console.log('📝 Updating formData.date from', prev.date, 'to', newDateStr);
+          return { ...prev, date: newDateStr };
+        });
+      }
+    }}
+    dateFormat="dd MMMM yyyy"
+    locale={id}
+    showYearDropdown
+    dropdownMode="select"
+    className="w-full bg-slate-100 dark:bg-slate-700 border-2 border-transparent rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+    calendarClassName={`!bg-white dark:!bg-slate-800 !border-slate-200 dark:!border-slate-700 !rounded-xl !shadow-xl ${isDark ? 'dark-calendar' : ''}`}
+    wrapperClassName="w-full"
+    popperPlacement="bottom-start"
+    showPopperArrow={false}
+  />
+  <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+</div>
       </div>
 
 {/* Input Waktu - TAMBAH INI */}
@@ -4571,6 +4763,168 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           </div>
         </div>
       )}
+
+        {/* MODAL SALDO AWAL */}
+{showSaldoAwalModal && (
+  <div 
+    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+    onClick={() => setShowSaldoAwalModal(false)}
+  >
+    <div 
+      className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-lg text-slate-900 dark:text-white">💰 Saldo Awal</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {format(new Date(), 'MMMM yyyy', { locale: id })}
+          </p>
+        </div>
+        <button onClick={() => setShowSaldoAwalModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      {(() => {
+        const now = new Date();
+        const prevClosing = calculatePreviousMonthClosingBalance(now.getFullYear(), now.getMonth() + 1);
+        return (
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-200 dark:border-blue-800">
+            <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">
+              💡 Saldo Akhir Bulan Lalu
+            </p>
+            <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
+              {formatCurrency(prevClosing)}
+            </p>
+          </div>
+        );
+      })()}
+
+      <div className="space-y-2">
+        <button
+          onClick={() => setSaldoAwalForm({ ...saldoAwalForm, mode: 'prev' })}
+          className={`w-full p-3 rounded-xl text-left transition-all ${
+            saldoAwalForm.mode === 'prev'
+              ? 'bg-blue-500 text-white shadow-lg'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          <p className="font-bold text-sm">📅 Bulan Lalu (Otomatis)</p>
+          <p className="text-[10px] mt-0.5 opacity-80">
+            Gunakan saldo akhir bulan sebelumnya
+          </p>
+        </button>
+
+        <button
+          onClick={() => setSaldoAwalForm({ ...saldoAwalForm, mode: 'manual' })}
+          className={`w-full p-3 rounded-xl text-left transition-all ${
+            saldoAwalForm.mode === 'manual'
+              ? 'bg-blue-500 text-white shadow-lg'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          <p className="font-bold text-sm">✏️ Input Manual</p>
+          <p className="text-[10px] mt-0.5 opacity-80">
+            Masukkan nominal saldo awal sendiri
+          </p>
+        </button>
+      </div>
+
+      {saldoAwalForm.mode === 'manual' && (
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+            Nominal Saldo Awal
+          </label>
+          <input
+            type="text"
+            value={formatNominalDisplay(saldoAwalForm.amount)}
+            onChange={(e) => setSaldoAwalForm({ ...saldoAwalForm, amount: parseNominal(e.target.value).toString() })}
+            placeholder="Rp 0"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoFocus
+            className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white"
+          />
+        </div>
+      )}
+
+      <button
+        onClick={handleSaveSaldoAwal}
+        className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20"
+      >
+        💾 Simpan Saldo Awal
+      </button>
+    </div>
+  </div>
+)}
+
+{/* MODAL SALDO AKHIR */}
+{showSaldoAkhirModal && (
+  <div 
+    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+    onClick={() => setShowSaldoAkhirModal(false)}
+  >
+    <div 
+      className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 animate-in slide-in-from-bottom-4"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-lg text-slate-900 dark:text-white">💵 Saldo Akhir</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {format(new Date(), 'MMMM yyyy', { locale: id })}
+          </p>
+        </div>
+        <button onClick={() => setShowSaldoAkhirModal(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+          <X className="w-5 h-5 text-slate-500" />
+        </button>
+      </div>
+
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-200 dark:border-blue-800">
+        <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">
+          💡 Hitung Otomatis
+        </p>
+        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+          Saldo Akhir = Saldo Awal + Pemasukan - Pengeluaran
+        </p>
+        <p className="text-sm font-bold text-blue-700 dark:text-blue-300 mt-2">
+          = {formatCurrency(
+            (getCurrentMonthBalance()?.opening_balance || 0) + monthlyIncome - monthlyExpense
+          )}
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+          Nominal Saldo Akhir (Cek Uang Fisik/Rekening)
+        </label>
+        <input
+          type="text"
+          value={formatNominalDisplay(saldoAkhirForm.amount)}
+          onChange={(e) => setSaldoAkhirForm({ ...saldoAkhirForm, amount: parseNominal(e.target.value).toString() })}
+          placeholder="Rp 0"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoFocus
+          className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white"
+        />
+        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+          💡 Kosongkan jika ingin pakai hitungan otomatis
+        </p>
+      </div>
+
+      <button
+        onClick={handleSaveSaldoAkhir}
+        className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20"
+      >
+        💾 Simpan Saldo Akhir
+      </button>
+    </div>
+  </div>
+)}
+
+
         </nav>
       </div>
     </div>

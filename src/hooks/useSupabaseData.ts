@@ -14,6 +14,19 @@ export interface Book {
   created_at: string;
 }
 
+// ✅ TYPE BARU: MonthlyBalance
+export interface MonthlyBalance {
+  id: string;
+  user_id: string;
+  book_id: string;
+  year: number;
+  month: number;
+  opening_balance: number;
+  closing_balance: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SupabaseTransaction {
   id: string; user_id: string; book_id: string | null; date: string;
   type: 'income' | 'expense'; category: string; description: string;
@@ -23,7 +36,7 @@ export interface SupabaseTransaction {
 export interface SupabaseBudget {
   id: string; user_id: string; book_id: string | null; category: string;
   limit_amount: number; period: string;
-  description?: string | null; // ✅ TAMBAHKAN INI
+  description?: string | null;
   notified_threshold_50: boolean; notified_threshold_80: boolean; notified_threshold_100: boolean;
 }
 
@@ -43,137 +56,168 @@ export interface SupabaseRecurring {
 // ========== HOOK ==========
 export function useSupabaseData(isFamilyMode: boolean = false) {
   const { user } = useAuth();
+  
+  // ✅ SEMUA useState DI TOP LEVEL (WAJIB!)
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [transactions, setTransactions] = useState<SupabaseTransaction[]>([]);
   const [budgets, setBudgets] = useState<SupabaseBudget[]>([]);
   const [goals, setGoals] = useState<SupabaseGoal[]>([]);
   const [recurring, setRecurring] = useState<SupabaseRecurring[]>([]);
+  const [monthlyBalances, setMonthlyBalances] = useState<MonthlyBalance[]>([]); // ✅ STATE BARU
+  const [goalContributions, setGoalContributions] = useState<GoalContribution[]>([]);
   const [loading, setLoading] = useState(true);
+  
 
   // ========== FETCH BOOKS ==========
   const fetchBooks = useCallback(async () => {
-  if (!user) {
-    setLoading(false);
-    return;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('books')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('is_default', { ascending: false })
-      .order('created_at', { ascending: true });
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('books')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true });
 
-    if (error) {
-      console.error('❌ Fetch books error:', error);
+      if (error) {
+        console.error('❌ Fetch books error:', error);
+        setLoading(false);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        console.log('📚 No books found, creating default...');
+        const { data: newBook, error: createError } = await supabase
+          .from('books')
+          .insert({
+            user_id: user.id,
+            name: 'Buku Utama',
+            icon: '📘',
+            color: 'blue',
+            is_default: true,
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('❌ Create default book error:', createError);
+          setLoading(false);
+          return;
+        }
+        
+        setBooks([newBook]);
+        setActiveBook(newBook);
+      } else {
+        setBooks(data);
+        const savedBookId = localStorage.getItem(`active_book_${user.id}`);
+        const savedBook = data.find(b => b.id === savedBookId);
+        const defaultBook = data.find(b => b.is_default) || data[0];
+        setActiveBook(savedBook || defaultBook);
+      }
+    } catch (err) {
+      console.error('❌ Fetch books exception:', err);
+      setLoading(false);
+    }
+  }, [user]);
+
+  // ========== FETCH MONTHLY BALANCES ✅ FUNGSI BARU ==========
+  const fetchMonthlyBalances = useCallback(async () => {
+    if (!user) return;
+    if (!isFamilyMode && !activeBook) return;
+    
+    try {
+      let query = supabase.from('monthly_balances').select('*').eq('user_id', user.id);
+      
+      if (!isFamilyMode && activeBook) {
+        query = query.eq('book_id', activeBook.id);
+      }
+      
+      const { data, error } = await query.order('year', { ascending: false }).order('month', { ascending: false });
+      
+      if (error) {
+        // ✅ Jika tabel belum ada, silent fail saja
+        if (error.message.includes('does not exist') || error.code === '42P01') {
+          console.warn('⚠️ Tabel monthly_balances belum dibuat. Lewati fetch.');
+          return;
+        }
+        console.error('❌ Fetch monthly balances error:', error);
+        return;
+      }
+      
+      if (data) {
+        setMonthlyBalances(data);
+      }
+    } catch (err) {
+      console.error('❌ Fetch monthly balances exception:', err);
+    }
+  }, [user, activeBook, isFamilyMode]);
+
+  // ========== FETCH DATA ==========
+  const fetchData = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    
+    if (!isFamilyMode && !activeBook) {
       setLoading(false);
       return;
     }
 
-    // Kalau user belum punya buku sama sekali, buat default book
-    if (!data || data.length === 0) {
-      console.log('📚 No books found, creating default...');
-      const { data: newBook, error: createError } = await supabase
-        .from('books')
-        .insert({
-          user_id: user.id,
-          name: 'Buku Utama',
-          icon: '📘',
-          color: 'blue',
-          is_default: true,
-        })
-        .select()
-        .single();
-      
-      if (createError) {
-        console.error('❌ Create default book error:', createError);
-        setLoading(false);
-        return;
+    setLoading(true);
+    try {
+      let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      let bQuery = supabase.from('budgets').select('*').eq('user_id', user.id);
+      let gQuery = supabase.from('financial_goals').select('*').eq('user_id', user.id);
+      let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id);
+
+      if (!isFamilyMode && activeBook) {
+        tQuery = tQuery.eq('book_id', activeBook.id);
+        bQuery = bQuery.eq('book_id', activeBook.id);
+        gQuery = gQuery.eq('book_id', activeBook.id);
+        rQuery = rQuery.eq('book_id', activeBook.id);
       }
-      
-      setBooks([newBook]);
-      setActiveBook(newBook);
-    } else {
-      setBooks(data);
-      const savedBookId = localStorage.getItem(`active_book_${user.id}`);
-      const savedBook = data.find(b => b.id === savedBookId);
-      const defaultBook = data.find(b => b.is_default) || data[0];
-      setActiveBook(savedBook || defaultBook);
+
+      const [tRes, bRes, gRes, rRes] = await Promise.all([
+        tQuery, bQuery, gQuery, rQuery
+      ]);
+
+      if (tRes.error) console.error('❌ Transactions error:', tRes.error);
+      if (bRes.error) console.error('❌ Budgets error:', bRes.error);
+      if (gRes.error) console.error('❌ Goals error:', gRes.error);
+      if (rRes.error) console.error('❌ Recurring error:', rRes.error);
+
+      if (tRes.data) setTransactions(tRes.data);
+      if (bRes.data) setBudgets(bRes.data);
+      if (gRes.data) setGoals(gRes.data);
+      if (rRes.data) setRecurring(rRes.data);
+
+      if (!isFamilyMode && activeBook && tRes.data?.length === 0) {
+        await migrateLocalStorage(user.id, activeBook);
+      }
+    } catch (err) {
+      console.error('❌ Fetch data exception:', err);
+      toast.error('Gagal memuat data');
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error('❌ Fetch books exception:', err);
-    setLoading(false);
-  }
-}, [user]);
-
-  // ========== FETCH DATA (FILTER BY ACTIVE BOOK / FAMILY MODE) ==========
-const fetchData = useCallback(async () => {
-  if (!user) {
-    setLoading(false);
-    return;
-  }
-  
-  // Jika bukan mode keluarga DAN tidak ada activeBook, jangan fetch
-  if (!isFamilyMode && !activeBook) {
-    setLoading(false);
-    return;
-  }
-
-  setLoading(true);
-  try {
-
-    let tQuery = supabase.from('transactions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-    let bQuery = supabase.from('budgets').select('*').eq('user_id', user.id);
-    let gQuery = supabase.from('financial_goals').select('*').eq('user_id', user.id);
-    let rQuery = supabase.from('recurring_transactions').select('*').eq('user_id', user.id); // ✅ TAMBAHKAN INI
-
-// Jika BUKAN mode keluarga, baru filter berdasarkan activeBook
-
-    // Jika BUKAN mode keluarga, baru filter berdasarkan activeBook
-    if (!isFamilyMode && activeBook) {
-      tQuery = tQuery.eq('book_id', activeBook.id);
-      bQuery = bQuery.eq('book_id', activeBook.id);
-      gQuery = gQuery.eq('book_id', activeBook.id);
-      rQuery = rQuery.eq('book_id', activeBook.id);
-    }
-
-    const [tRes, bRes, gRes, rRes] = await Promise.all([
-      tQuery, bQuery, gQuery, rQuery
-    ]);
-
-    if (tRes.error) console.error('❌ Transactions error:', tRes.error);
-    if (bRes.error) console.error('❌ Budgets error:', bRes.error);
-    if (gRes.error) console.error('❌ Goals error:', gRes.error);
-    if (rRes.error) console.error('❌ Recurring error:', rRes.error);
-
-    if (tRes.data) setTransactions(tRes.data);
-    if (bRes.data) setBudgets(bRes.data);
-    if (gRes.data) setGoals(gRes.data);
-    if (rRes.data) setRecurring(rRes.data);
-
-    // Migrasi lokal storage hanya jika di mode normal (bukan family mode) dan data kosong
-    if (!isFamilyMode && activeBook && tRes.data?.length === 0) {
-      await migrateLocalStorage(user.id, activeBook);
-    }
-  } catch (err) {
-    console.error('❌ Fetch data exception:', err);
-    toast.error('Gagal memuat data');
-  } finally {
-    setLoading(false); // ✅ Selalu dipanggil
-  }
-}, [user, activeBook, isFamilyMode]);
+  }, [user, activeBook, isFamilyMode]);
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
-useEffect(() => { 
-  fetchData(); 
-  fetchGoalContributions(); // ✅ TAMBAHKAN BARIS INI
-}, [fetchData, isFamilyMode]); 
+  useEffect(() => { 
+    fetchData(); 
+    fetchGoalContributions();
+    fetchMonthlyBalances(); // ✅ TAMBAHKAN INI
+  }, [fetchData, isFamilyMode, fetchMonthlyBalances]); 
 
   // ========== MIGRASI LOCALSTORAGE ==========
   const migrateLocalStorage = async (userId: string, book: Book) => {
-    if (!book.is_default) return; // Hanya migrasi ke default book
+    if (!book.is_default) return;
     try {
       const lT = JSON.parse(localStorage.getItem('keuangan_transactions') || '[]');
       const lB = JSON.parse(localStorage.getItem('keuangan_budgets') || '[]');
@@ -266,82 +310,77 @@ useEffect(() => {
   };
 
   // ========== TRANSACTION CRUD ==========
- const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'> & { id?: string }) => {
-  if (!user || !activeBook) {
-    console.error('❌ Missing user or activeBook');
-    return null;
-  }
-    // ✅ LOG DATE YANG AKAN DI-INSERT
-  console.log('📝 Adding transaction with date:', t.date, 'Type:', typeof t.date);
-  
-  const { data, error } = await supabase.from('transactions')
-    .insert({ ...t, user_id: user.id, book_id: activeBook.id }).select().single();
+  const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'> & { id?: string }) => {
+    if (!user || !activeBook) {
+      console.error('❌ Missing user or activeBook');
+      return null;
+    }
+    console.log('📝 Adding transaction with date:', t.date, 'Type:', typeof t.date);
     
-  if (error) { 
-    console.error('❌ Supabase insert error:', error);
-    toast.error('Gagal: ' + error.message); 
-    return null; 
-  }
-  
-  console.log('✅ Transaction added:', data);
-setTransactions(prev => [data, ...prev]);
-return data;
-};
+    const { data, error } = await supabase.from('transactions')
+      .insert({ ...t, user_id: user.id, book_id: activeBook.id }).select().single();
+      
+    if (error) { 
+      console.error('❌ Supabase insert error:', error);
+      toast.error('Gagal: ' + error.message); 
+      return null; 
+    }
+    
+    console.log('✅ Transaction added:', data);
+    setTransactions(prev => [data, ...prev]);
+    return data;
+  };
 
   const updateTransaction = async (id: string, updates: Partial<Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'>>) => {
-  if (!user || !activeBook) return null;
-  
-  const { data, error } = await supabase
-    .from('transactions')
-    .update(updates) // ✅ PENTING: Gunakan 'updates' di sini, jangan 't'
-    .eq('id', id)
-    .select()
-    .single();
+    if (!user || !activeBook) return null;
     
-  if (error) { 
-    console.error('❌ Update transaction error:', error);
-    toast.error('Gagal update transaksi'); 
-    return null; 
-  }
-  
-  // Update state lokal agar UI langsung berubah tanpa reload
-  setTransactions(prev => prev.map(x => x.id === id ? data : x));
-  return data;
-};
-
-  // Di useSupabaseData.ts - deleteTransaction
-const deleteTransaction = async (id: string) => {
-  // ✅ Cek apakah transaksi terkait goal contribution
-  const transaction = transactions.find(t => t.id === id);
-  if (transaction) {
-    const refMatch = transaction.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
-    if (refMatch && refMatch[1]) {
-      // Hapus goal contribution (yang akan kurangi progress)
-      await deleteGoalContribution(refMatch[1]);
-      return true; // deleteGoalContribution sudah hapus transaksi
+    const { data, error } = await supabase
+      .from('transactions')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+      
+    if (error) { 
+      console.error('❌ Update transaction error:', error);
+      toast.error('Gagal update transaksi'); 
+      return null; 
     }
-  }
-  
-  // Hapus biasa
-  const { error } = await supabase.from('transactions').delete().eq('id', id);
-  if (error) { toast.error('Gagal hapus'); return false; }
-  setTransactions(prev => prev.filter(t => t.id !== id));
-  return true;
-};
+    
+    setTransactions(prev => prev.map(x => x.id === id ? data : x));
+    return data;
+  };
+
+  const deleteTransaction = async (id: string) => {
+    const transaction = transactions.find(t => t.id === id);
+    if (transaction) {
+      const refMatch = transaction.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
+      if (refMatch && refMatch[1]) {
+        await deleteGoalContribution(refMatch[1]);
+        return true;
+      }
+    }
+    
+    const { error } = await supabase.from('transactions').delete().eq('id', id);
+    if (error) { toast.error('Gagal hapus'); return false; }
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    return true;
+  };
 
   // ========== BUDGET CRUD ==========
-    const addBudget = async (b: { category: string; limit_amount: number; period?: string; description?: string }) => {
-      if (!user || !activeBook) return null;
-      const { data, error } = await supabase.from('budgets').insert({
-        ...b, user_id: user.id, book_id: activeBook.id, period: b.period || 'monthly',
-        description: b.description || null, // ✅ TAMBAHKAN INI
-        notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
-      }).select().single();
-      if (error) { toast.error('Gagal tambah budget'); return null; }
-      setBudgets(prev => [...prev, data]);
-      return data;
-};
-    const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string; description?: string }) => {
+  const addBudget = async (b: { category: string; limit_amount: number; period?: string; description?: string }) => {
+    if (!user || !activeBook) return null;
+    const { data, error } = await supabase.from('budgets').insert({
+      ...b, user_id: user.id, book_id: activeBook.id, period: b.period || 'monthly',
+      description: b.description || null,
+      notified_threshold_50: false, notified_threshold_80: false, notified_threshold_100: false,
+    }).select().single();
+    if (error) { toast.error('Gagal tambah budget'); return null; }
+    setBudgets(prev => [...prev, data]);
+    return data;
+  };
+
+  const updateBudget = async (id: string, updates: { category?: string; limit_amount?: number; period?: string; description?: string }) => {
     const { data, error } = await supabase.from('budgets').update(updates).eq('id', id).select().single();
     if (error) { 
       toast.error('Gagal update budget'); 
@@ -384,129 +423,111 @@ const deleteTransaction = async (id: string) => {
     return true;
   };
 
+  // ========== GOAL CONTRIBUTIONS CRUD ==========
+  const fetchGoalContributions = async () => {
+    if (!user) return;
+    if (!isFamilyMode && !activeBook) return;
 
-// ========== GOAL CONTRIBUTIONS CRUD ==========
-const [goalContributions, setGoalContributions] = useState<any[]>([]);
+    let query = supabase.from('goal_contributions').select('*').eq('user_id', user.id).order('date', { ascending: false });
+    
+    if (!isFamilyMode && activeBook) {
+      query = query.eq('book_id', activeBook.id);
+    }
 
-const fetchGoalContributions = async () => {
-  if (!user) return;
-  if (!isFamilyMode && !activeBook) return;
+    const { data, error } = await query;
+    if (!error && data) setGoalContributions(data);
+  };
 
-  let query = supabase.from('goal_contributions').select('*').eq('user_id', user.id).order('date', { ascending: false });
-  
-  // Jika BUKAN mode keluarga, filter berdasarkan activeBook
-  if (!isFamilyMode && activeBook) {
-    query = query.eq('book_id', activeBook.id);
-  }
+  const addGoalContribution = async (contribution: {
+    goal_id: string;
+    amount: number;
+    date: string;
+    note?: string;
+  }) => {
+    if (!user || !activeBook) return null;
+    
+    const targetGoal = goals.find(g => g.id === contribution.goal_id);
+    
+    const { data, error } = await supabase
+      .from('goal_contributions')
+      .insert({
+        ...contribution,
+        user_id: user.id,
+        book_id: activeBook.id,
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      toast.error('Gagal menambah riwayat');
+      console.error('Add Goal Contribution Error:', error);
+      return null;
+    }
+    
+    setGoalContributions(prev => [data, ...prev]);
+    await incrementGoalAmount(contribution.goal_id, contribution.amount);
+    
+    return data;
+  };
 
-  const { data, error } = await query;
-  if (!error && data) setGoalContributions(data);
-};
+  const updateGoalContribution = async (id: string, updates: { amount?: number; date?: string; note?: string }) => {
+    const oldContribution = goalContributions.find(c => c.id === id);
+    if (!oldContribution) return null;
 
-const addGoalContribution = async (contribution: {
-  goal_id: string;
-  amount: number;
-  date: string;
-  note?: string;
-}) => {
-  if (!user || !activeBook) return null;
-  
-  // Gunakan nama variabel 'targetGoal' agar tidak bentrok dengan scope lain
-  const targetGoal = goals.find(g => g.id === contribution.goal_id);
-  
-  const { data, error } = await supabase
-    .from('goal_contributions')
-    .insert({
-      ...contribution,
-      user_id: user.id,
-      book_id: activeBook.id,
-    })
-    .select()
-    .single();
-  
-  if (error) {
-    toast.error('Gagal menambah riwayat');
-    console.error('Add Goal Contribution Error:', error);
-    return null;
-  }
-  
-  setGoalContributions(prev => [data, ...prev]);
-  
-  // ✅ Gunakan RPC atomic untuk menghindari race condition
-await incrementGoalAmount(contribution.goal_id, contribution.amount);
-  
-  return data;
-};
+    const { data, error } = await supabase
+      .from('goal_contributions')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
 
-const updateGoalContribution = async (id: string, updates: { amount?: number; date?: string; note?: string }) => {
-  // Cari data LAMA sebelum update
-  const oldContribution = goalContributions.find(c => c.id === id);
-  if (!oldContribution) return null;
+    if (error) {
+      toast.error('Gagal mengedit riwayat');
+      console.error('Update Goal Contribution Error:', error);
+      return null;
+    }
 
-  const { data, error } = await supabase
-    .from('goal_contributions')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+    setGoalContributions(prev => prev.map(c => c.id === id ? data : c));
 
-  if (error) {
-    toast.error('Gagal mengedit riwayat');
-    console.error('Update Goal Contribution Error:', error);
-    return null;
-  }
+    const newAmount = updates.amount ?? oldContribution.amount;
+    const delta = newAmount - oldContribution.amount;
 
-  setGoalContributions(prev => prev.map(c => c.id === id ? data : c));
+    if (delta !== 0) {
+      await incrementGoalAmount(oldContribution.goal_id, delta);
+    }
 
-  // Hitung selisih (delta) untuk menyesuaikan progress goal
-  const newAmount = updates.amount ?? oldContribution.amount;
-  const delta = newAmount - oldContribution.amount;
+    return data;
+  };
 
-  // ✅ Gunakan RPC atomic untuk delta
-if (delta !== 0) {
-  await incrementGoalAmount(oldContribution.goal_id, delta);
-}
+  const deleteGoalContribution = async (id: string) => {
+    const contribution = goalContributions.find(c => c.id === id);
+    if (!contribution) return false;
 
-  return data;
-};
+    const linkedTransaction = transactions.find(t => 
+      t.type === 'expense' && 
+      t.category === 'investasi_exp' && 
+      t.notes?.includes(`[ref:${id}]`)
+    );
 
-// ========== GOAL CONTRIBUTIONS CRUD ==========
-const deleteGoalContribution = async (id: string) => {
-  const contribution = goalContributions.find(c => c.id === id);
-  if (!contribution) return false;
+    if (linkedTransaction) {
+      await deleteTransaction(linkedTransaction.id);
+    }
 
-  // ✅ LANGKAH 1: Cari transaksi yang terhubung dengan kontribusi ini
-  // Mencari transaksi expense kategori investasi_exp yang memiliki [ref:id_kontribusi] di notes
-  const linkedTransaction = transactions.find(t => 
-    t.type === 'expense' && 
-    t.category === 'investasi_exp' && 
-    t.notes?.includes(`[ref:${id}]`)
-  );
+    const { error } = await supabase
+      .from('goal_contributions')
+      .delete()
+      .eq('id', id);
 
-  // ✅ LANGKAH 2: Hapus transaksi terkait jika ditemukan
-  if (linkedTransaction) {
-    await deleteTransaction(linkedTransaction.id);
-  }
+    if (error) {
+      toast.error('Gagal menghapus riwayat');
+      return false;
+    }
 
-  // ✅ LANGKAH 3: Baru hapus riwayat kontribusi dari database
-  const { error } = await supabase
-    .from('goal_contributions')
-    .delete()
-    .eq('id', id);
+    setGoalContributions(prev => prev.filter(c => c.id !== id));
+    await incrementGoalAmount(contribution.goal_id, -contribution.amount);
 
-  if (error) {
-    toast.error('Gagal menghapus riwayat');
-    return false;
-  }
-
-  setGoalContributions(prev => prev.filter(c => c.id !== id));
-
-  // ✅ Gunakan RPC atomic untuk pengurangan
-await incrementGoalAmount(contribution.goal_id, -contribution.amount);
-
-  return true;
-};
-
+    return true;
+  };
 
   // ========== RECURRING CRUD ==========
   const addRecurring = async (r: Omit<SupabaseRecurring, 'id' | 'user_id' | 'book_id'>) => {
@@ -519,7 +540,7 @@ await incrementGoalAmount(contribution.goal_id, -contribution.amount);
     return data;
   };
 
-    const updateRecurring = async (id: string, updates: any) => {
+  const updateRecurring = async (id: string, updates: any) => {
     const { data, error } = await supabase.from('recurring_transactions').update(updates).eq('id', id).select().single();
     if (error) { 
       toast.error('Gagal update recurring'); 
@@ -538,44 +559,126 @@ await incrementGoalAmount(contribution.goal_id, -contribution.amount);
   };
 
   // ========== ATOMIC GOAL INCREMENT ==========
-const incrementGoalAmount = async (goalId: string, delta: number) => {
-  const { error } = await supabase.rpc('increment_goal_amount', {
-    p_goal_id: goalId,
-    p_delta: delta,
-  });
-  
-  if (error) {
-    console.error('❌ RPC increment_goal_amount error:', error);
-    toast.error('Gagal update progress goal');
-    return false;
-  }
-  
-  // Refresh data lokal agar sinkron
-  await fetchData();
-  return true;
-};
-
-    return {
-  books, activeBook, transactions, budgets, goals, recurring, loading,
-  switchBook, createBook, renameBook, deleteBook,
-  addTransaction, updateTransaction, deleteTransaction,
-  addBudget, updateBudget, deleteBudget,
-  addGoal, updateGoal, deleteGoal,
-  addRecurring, updateRecurring, deleteRecurring,
-  goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution, // ✅ WAJIB ADA DI SINI
-  refresh: fetchData, incrementGoalAmount,
-};
-}
-
-// ✅ TAMBAHKAN RETRY LOGIC
-const fetchDataWithRetry = async (retries = 3) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      await fetchData();
-      return; // Success
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+  const incrementGoalAmount = async (goalId: string, delta: number) => {
+    const { error } = await supabase.rpc('increment_goal_amount', {
+      p_goal_id: goalId,
+      p_delta: delta,
+    });
+    
+    if (error) {
+      console.error('❌ RPC increment_goal_amount error:', error);
+      toast.error('Gagal update progress goal');
+      return false;
     }
-  }
-};
+    
+    await fetchData();
+    return true;
+  };
+
+  // ========== MONTHLY BALANCE FUNCTIONS ✅ FUNGSI BARU ==========
+  
+  const saveMonthlyBalance = async (year: number, month: number, openingBalance: number, closingBalance: number) => {
+    if (!user || !activeBook) return null;
+    
+    const existing = monthlyBalances.find(mb => mb.year === year && mb.month === month);
+    
+    if (existing) {
+      const { data, error } = await supabase
+        .from('monthly_balances')
+        .update({ 
+          opening_balance: openingBalance, 
+          closing_balance: closingBalance 
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      
+      if (error) {
+        toast.error('Gagal update saldo bulanan');
+        console.error('Save Monthly Balance Error:', error);
+        return null;
+      }
+      
+      setMonthlyBalances(prev => prev.map(mb => mb.id === existing.id ? data : mb));
+      toast.success('Saldo bulanan diupdate! 💰');
+      return data;
+    } else {
+      const { data, error } = await supabase
+        .from('monthly_balances')
+        .insert({
+          user_id: user.id,
+          book_id: activeBook.id,
+          year,
+          month,
+          opening_balance: openingBalance,
+          closing_balance: closingBalance
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        toast.error('Gagal simpan saldo bulanan');
+        console.error('Save Monthly Balance Error:', error);
+        return null;
+      }
+      
+      setMonthlyBalances(prev => [data, ...prev]);
+      toast.success('Saldo bulanan disimpan! 💰');
+      return data;
+    }
+  };
+
+  const calculatePreviousMonthClosingBalance = (year: number, month: number): number => {
+    let prevYear = year;
+    let prevMonth = month - 1;
+    
+    if (prevMonth === 0) {
+      prevMonth = 12;
+      prevYear--;
+    }
+    
+    const prevBalance = monthlyBalances.find(mb => mb.year === prevYear && mb.month === prevMonth);
+    
+    if (prevBalance) {
+      return prevBalance.closing_balance;
+    }
+    
+    const monthStart = new Date(prevYear, prevMonth - 1, 1);
+    const monthEnd = new Date(prevYear, prevMonth, 0, 23, 59, 59);
+    
+    const monthTransactions = transactions.filter(t => {
+      const d = new Date(t.date);
+      return d >= monthStart && d <= monthEnd;
+    });
+    
+    const income = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+    const expense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+    
+    return income - expense;
+  };
+
+  const getCurrentMonthBalance = (): MonthlyBalance | undefined => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    
+    return monthlyBalances.find(mb => mb.year === year && mb.month === month);
+  };
+
+  // ========== RETURN STATEMENT ==========
+  return {
+    books, activeBook, transactions, budgets, goals, recurring, loading,
+    switchBook, createBook, renameBook, deleteBook,
+    addTransaction, updateTransaction, deleteTransaction,
+    addBudget, updateBudget, deleteBudget,
+    addGoal, updateGoal, deleteGoal,
+    addRecurring, updateRecurring, deleteRecurring,
+    goalContributions, addGoalContribution, updateGoalContribution, deleteGoalContribution,
+    refresh: fetchData, incrementGoalAmount,
+    // ✅ MONTHLY BALANCE FUNCTIONS
+    monthlyBalances, 
+    saveMonthlyBalance, 
+    calculatePreviousMonthClosingBalance, 
+    getCurrentMonthBalance,
+  };
+}
