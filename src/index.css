@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ✅ SAFE AREA UNTUK NOTIFIKASI - DYNAMIC ISLAND & NOTCH */
+#root > div > div[role="alert"] {
+  margin-top: max(16px, env(safe-area-inset-top)) !important;
+  z-index: 9999 !important;
+}
+
+/* Fallback untuk browser yang tidak support env() */
+@supports not (env(safe-area-inset-top)) {
+  #root > div > div[role="alert"] {
+    margin-top: 20px !important;
+  }
+}
+
+/* Pastikan toast tidak terpotong di sisi kiri/kanan */
+#root > div > div[role="alert"] {
+  margin-left: 12px !important;
+  margin-right: 12px !important;
+  max-width: calc(100% - 24px) !important;
+}
+
 * {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
@@ -108,7 +128,7 @@ html.dark {
   background-color: #0f172a; /* slate-900 */
 }
 
-/* ===== REACT DATEPICKER DARK MODE - PERBAIKAN KONTRAS ===== */
+/* ===== REACT DATEPICKER DARK MODE - PERBAIKAN KONTRAS LENGKAP ===== */
 
 /* Background calendar */
 .dark .react-datepicker {
@@ -123,15 +143,18 @@ html.dark {
   border-bottom-color: #334155 !important;
 }
 
-/* Nama hari (Sen, Sel, Rab...) */
-.dark .react-datepicker__day-name {
-  color: #94a3b8 !important;
+/* ✅ PERBAIKAN UTAMA: Nama hari (Sen, Sel, Rab...) - SPESIFISITAS TINGGI */
+.dark .react-datepicker__header .react-datepicker__day-name,
+.dark .react-datepicker__day-name,
+.dark div.react-datepicker__day-name {
+  color: #e2e8f0 !important; /* Warna terang, bukan hitam */
   font-weight: 600 !important;
+  opacity: 1 !important;
 }
 
-/* ✅ Angka tanggal - PERBAIKAN UTAMA */
+/* ✅ Angka tanggal */
 .dark .react-datepicker__day {
-  color: #e2e8f0 !important; /* Warna terang agar terlihat di background gelap */
+  color: #e2e8f0 !important;
   font-weight: 500 !important;
 }
 
@@ -143,17 +166,22 @@ html.dark {
 
 /* Tanggal yang dipilih */
 .dark .react-datepicker__day--selected,
-.dark .react-datepicker__day--keyboard-selected {
+.dark .react-datepicker__day--keyboard-selected,
+.dark .react-datepicker__day--selected.react-datepicker__day--today,
+.dark .react-datepicker__day--in-selecting-range,
+.dark .react-datepicker__day--in-range {
   background-color: #3b82f6 !important;
   color: #ffffff !important;
   font-weight: 700 !important;
+  border: none !important;
 }
 
-/* Tanggal hari ini */
+/* Tanggal hari ini (tanpa seleksi) */
 .dark .react-datepicker__day--today {
   color: #3b82f6 !important;
   font-weight: 700 !important;
-  text-decoration: underline !important;
+  border: 2px solid #3b82f6 !important;
+  border-radius: 50% !important;
 }
 
 /* Tanggal di luar bulan ini (pudar) */
@@ -164,7 +192,7 @@ html.dark {
 
 /* Tombol navigasi bulan (< >) */
 .dark .react-datepicker__navigation-icon::before {
-  border-color: #94a3b8 !important;
+  border-color: #e2e8f0 !important;
 }
 
 /* Dropdown tahun & bulan */
@@ -180,4 +208,22 @@ html.dark {
 .dark .react-datepicker__current-month {
   color: #f1f5f9 !important;
   font-weight: 700 !important;
+}
+
+/* Time picker (jika ada) */
+.dark .react-datepicker__time-container {
+  border-left-color: #334155 !important;
+}
+.dark .react-datepicker__time-container .react-datepicker__time {
+  background-color: #1e293b !important;
+}
+.dark .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list li.react-datepicker__time-list-item {
+  color: #e2e8f0 !important;
+}
+.dark .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list li.react-datepicker__time-list-item:hover {
+  background-color: #334155 !important;
+}
+.dark .react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box ul.react-datepicker__time-list li.react-datepicker__time-list-item--selected {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
 }

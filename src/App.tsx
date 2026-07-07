@@ -423,7 +423,7 @@ const safeRecurring = recurringTransactions || [];
 // ✅ EFFECT: Set isReady saat data sudah dimuat
 useEffect(() => {
   if (!authLoading && !dataLoading && user && activeBook) {
-    setIsReady(true);
+    setIsReady(true);filteredTransactions
   } else if (!user && !authLoading) {
     setIsReady(false);
   }
@@ -452,6 +452,9 @@ useEffect(() => {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  // ✅ STATE BARU: Filter Metode Pembayaran
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState('');
+  const [isPaymentMethodDropdownOpen, setIsPaymentMethodDropdownOpen] = useState(false);
   // ✅ STATE BARU: Search Query untuk Riwayat
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -543,6 +546,7 @@ useEffect(() => {
     window.removeEventListener('focus', handleFocus);
   };
 }, [currentMonthKey]);
+
 
  
 /// ========== THEME ==========
@@ -711,6 +715,44 @@ useEffect(() => {
   }, [transactions]);
 
     const savings = useMemo(() => monthlyIncome - monthlyExpense, [monthlyIncome, monthlyExpense]);
+
+    // ✅ AUTO-UPDATE SALDO AKHIR REALTIME (saat ada transaksi baru)
+const autoSaveClosingBalanceRef = useRef(false);
+
+useEffect(() => {
+  // Skip jika belum ada opening balance (user belum set saldo awal)
+  const currentBalance = getCurrentMonthBalance();
+  if (!currentBalance || currentBalance.opening_balance === 0) {
+    return;
+  }
+
+  // Hitung saldo akhir otomatis
+  const autoClosingBalance = currentBalance.opening_balance + monthlyIncome - monthlyExpense;
+  
+  // Hanya update jika nilai berubah (hindari infinite loop)
+  if (currentBalance.closing_balance !== autoClosingBalance) {
+    console.log('🔄 Auto-update saldo akhir:', autoClosingBalance);
+    
+    // Flag untuk mencegah toast spam
+    if (!autoSaveClosingBalanceRef.current) {
+      autoSaveClosingBalanceRef.current = true;
+      
+      // Simpan ke Supabase (silent, tanpa toast)
+      saveMonthlyBalance(
+        new Date().getFullYear(),
+        new Date().getMonth() + 1,
+        currentBalance.opening_balance,
+        autoClosingBalance
+      ).then(() => {
+        // Reset flag setelah 2 detik (untuk update berikutnya)
+        setTimeout(() => {
+          autoSaveClosingBalanceRef.current = false;
+        }, 2000);
+      });
+    }
+  }
+}, [monthlyIncome, monthlyExpense]); // ✅ Trigger saat income/expense berubah
+
 
   // ✅ HITUNG PENGELUARAN BERDASARKAN METODE BAYAR (BULAN INI) - 3 KATEGORI
 const paymentSummary = useMemo(() => {
@@ -1181,6 +1223,13 @@ const handleUndoDelete = async (toastId: string, tx: Transaction) => {
     })
     
         .filter(t => !filterCategory || t.category === filterCategory)
+     // ✅ FILTER METODE PEMBAYARAN (BARU!)
+      .filter(t => {
+        if (!filterPaymentMethod) return true;
+        // Jika filter payment method diset, cocokkan dengan payment_method transaksi
+        // Handle data lama yang mungkin undefined (default ke 'cash')
+        return (t.payment_method || 'cash') === filterPaymentMethod;
+      })   
     // ✅ FILTER SEARCH (CASE & SPACE INSENSITIVE)
     .filter(t => {
       if (!searchQuery) return true;
@@ -1210,7 +1259,7 @@ const handleUndoDelete = async (toastId: string, tx: Transaction) => {
     return timeB - timeA;
     });
     
-}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, isFamilyMode, selectedBookIds, books, searchQuery]);
+}, [transactions, periodFilter, customStartDate, customEndDate, filterCategory, filterPaymentMethod, isFamilyMode, selectedBookIds, books, searchQuery]);
 // ⚠️ PENTING: Pastikan 3 variabel terakhir (isFamilyMode, selectedBookIds, books) ada di dalam kurung siku ini!
   
 
@@ -1682,6 +1731,7 @@ useEffect(() => {
       setIsBudgetCategoryDropdownOpen(false); // ✅ TAMBAHKAN
       setIsRecurringCategoryDropdownOpen(false); // ✅ TAMBAHKAN
       setIsRecurringFrequencyDropdownOpen(false); // ✅ TAMBAHKAN
+      setIsPaymentMethodDropdownOpen(false); // ✅ TAMBAHKAN INI
       setShowBookManager(false);
     }
   };
@@ -1756,7 +1806,55 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
     <ErrorBoundary isDark={theme === 'dark'}>
     <div className={`${isDark ? 'dark' : ''}`}>
       <div className="min-h-[100dvh] bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white transition-colors">
-        <Toaster position="top-center" />
+       <Toaster 
+  position="top-center"
+  toastOptions={{
+    duration: 3000,
+    style: {
+      marginTop: 'max(12px, env(safe-area-inset-top))', // ✅ Safe area untuk Dynamic Island
+      paddingTop: 'max(8px, env(safe-area-inset-top))', // ✅ Extra padding
+      zIndex: 9999, // ✅ Pastikan di atas semua elemen
+    },
+    success: {
+      style: {
+        background: '#10b981',
+        color: '#fff',
+        fontSize: '14px',
+        fontWeight: '600',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      },
+      iconTheme: {
+        primary: '#fff',
+        secondary: '#10b981',
+      },
+    },
+    error: {
+      style: {
+        background: '#ef4444',
+        color: '#fff',
+        fontSize: '14px',
+        fontWeight: '600',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      },
+      iconTheme: {
+        primary: '#fff',
+        secondary: '#ef4444',
+      },
+    },
+    info: {
+      style: {
+        background: '#3b82f6',
+        color: '#fff',
+        fontSize: '14px',
+        fontWeight: '600',
+        borderRadius: '12px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+      },
+    },
+  }}
+/> 
         
         {/* HEADER */}
         <header 
@@ -2059,30 +2157,30 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 
                 {/* ✅ SALDO AKHIR - BARU! */}
                 <div 
-                  className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl p-4 shadow-lg shadow-blue-500/20 cursor-pointer active:scale-95 transition-transform"
-                  onClick={() => setShowSaldoAkhirModal(true)}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <TrendingUp className="w-3.5 h-3.5 text-blue-100" />
-                      <p className="text-[11px] text-blue-50 font-medium">Saldo Akhir</p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowSaldoAkhir(!showSaldoAkhir);
-                      }}
-                      className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full"
-                    >
-                      {showSaldoAkhir ? <Eye className="w-4 h-4 text-blue-100" /> : <EyeOff className="w-4 h-4 text-blue-100" />}
-                    </button>
+                className="bg-gradient-to-br from-blue-500 to-cyan-600 rounded-2xl p-4 shadow-lg shadow-blue-500/20 cursor-pointer active:scale-95 transition-transform"
+                onClick={() => setShowSaldoAkhirModal(true)}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-blue-100" />
+                    <p className="text-[11px] text-blue-50 font-medium">Saldo Akhir</p>
                   </div>
-                  <p className="text-sm font-bold text-white break-words">
-                    {showSaldoAkhir 
-                      ? formatCurrency(getCurrentMonthBalance()?.closing_balance || 0).replace('Rp', 'Rp ')
-                      : '••••••••'}
-                  </p>
-                  <p className="text-[9px] text-blue-100 mt-1">Tap untuk edit</p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSaldoAkhir(!showSaldoAkhir);
+                    }}
+                    className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full"
+                  >
+                    {showSaldoAkhir ? <Eye className="w-4 h-4 text-blue-100" /> : <EyeOff className="w-4 h-4 text-blue-100" />}
+                  </button>
+                </div>
+                <p className="text-sm font-bold text-white break-words">
+                  {showSaldoAkhir 
+                    ? formatCurrency(getCurrentMonthBalance()?.closing_balance || 0).replace('Rp', 'Rp ')
+                    : '••••••••'}
+                </p>
+                <p className="text-[9px] text-blue-100 mt-1">Tap untuk edit</p>
                 </div>
               </div>
 
@@ -2721,6 +2819,88 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
         <span>📋</span>
         <span>Semua Kategori</span>
       </button>
+
+    {/* ✅ DROPDOWN FILTER METODE PEMBAYARAN - STYLING BERBEDA */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setIsPaymentMethodDropdownOpen(!isPaymentMethodDropdownOpen)}
+    className={`w-full border-2 rounded-xl px-3 py-3 text-sm focus:outline-none flex justify-between items-center transition-all ${
+      filterPaymentMethod 
+        ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300' 
+        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white'
+    }`}
+  >
+    {filterPaymentMethod ? (
+      <span className="flex items-center gap-2 font-semibold">
+        <span className="text-base">{paymentMethods[filterPaymentMethod]?.icon || '💳'}</span>
+        <span>{paymentMethods[filterPaymentMethod]?.name || 'Semua Metode'}</span>
+        <X className="w-3.5 h-3.5 ml-1 opacity-60" />
+      </span>
+    ) : (
+      <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+        <span className="text-base">💳</span>
+        <span>Semua Metode Bayar</span>
+      </span>
+    )}
+    <span className={`text-xs ${filterPaymentMethod ? 'text-indigo-500' : 'text-slate-400'}`}>
+      {isPaymentMethodDropdownOpen ? '▲' : '▼'}
+    </span>
+  </button>
+  
+  {isPaymentMethodDropdownOpen && (
+    <div className="absolute z-20 w-full mt-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl border-2 border-indigo-200 dark:border-indigo-800 overflow-hidden">
+      {/* Header dengan warna berbeda */}
+      <div className="px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white">
+        <p className="text-[10px] font-bold uppercase tracking-wider">💳 Metode Pembayaran</p>
+      </div>
+      
+      {/* Opsi: Semua Metode */}
+      <button
+        onClick={() => {
+          setFilterPaymentMethod('');
+          setIsPaymentMethodDropdownOpen(false);
+        }}
+        className={`w-full px-3 py-2.5 text-sm flex items-center gap-2 transition-colors border-b border-slate-100 dark:border-slate-700 ${
+          !filterPaymentMethod 
+            ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold' 
+            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+        }`}
+      >
+        <span className="text-base">📋</span>
+        <span>Semua Metode</span>
+      </button>
+      
+      {/* List Metode Pembayaran */}
+      {Object.entries(paymentMethods).map(([key, pm]) => (
+        <button
+          key={key}
+          onClick={() => {
+            setFilterPaymentMethod(key);
+            setIsPaymentMethodDropdownOpen(false);
+          }}
+          className={`w-full px-3 py-2.5 text-sm flex items-center justify-between transition-colors ${
+            filterPaymentMethod === key 
+              ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold' 
+              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-base">{pm.icon}</span>
+            <span>{pm.name}</span>
+          </span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+            key === 'cash' ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300' :
+            key === 'qris' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' :
+            'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+          }`}>
+            {pm.description.split(',')[0]}
+          </span>
+        </button>
+      ))}
+    </div>
+  )}
+</div>
 
       {/* Kategori Pemasukan */}
       <div className="px-3 py-1.5 text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-t border-slate-100 dark:border-slate-700">
