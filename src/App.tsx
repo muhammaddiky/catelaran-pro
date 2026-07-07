@@ -3,7 +3,7 @@ import {
   Plus, Trash2, Edit2, TrendingUp, Calendar, BarChart3,
   Home, Cloud, CheckCircle, DollarSign, Zap, Lightbulb, AlertTriangle,
   Target, Repeat, Bell, Sun, Moon, Download, Settings as SettingsIcon,
-  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, X, Eye, Clock,
+  ArrowUpRight, ArrowDownLeft, Menu, LogOut, ChevronRight, ChevronLeft, X, Eye, Clock,
   EyeOff
 } from 'lucide-react';
 import {
@@ -462,6 +462,9 @@ useEffect(() => {
   const deletedTxMapRef = useRef<Record<string, Transaction>>({});
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [viewingBudget, setViewingBudget] = useState<Budget | null>(null);
+  // ✅ STATE KALENDER NAVIGASI
+const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   // State untuk Goals
   const [editingGoal, setEditingGoal] = useState<FinancialGoal | null>(null);
@@ -3332,37 +3335,43 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
 })()}
 </div>
 
-   {/* ✅ KALENDER PENGELUARAN REAL-TIME (BULAN INI) */}
+ {/* ✅ KALENDER PENGELUARAN NAVIGABLE (BISA PINDAH BULAN) */}
 {(() => {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
+  const isCurrentMonth = calendarMonth === now.getMonth() && calendarYear === now.getFullYear();
+  
+  const firstDay = new Date(calendarYear, calendarMonth, 1);
+  const lastDay = new Date(calendarYear, calendarMonth + 1, 0);
   const daysInMonth = lastDay.getDate();
-
-  // ✅ Hitung total pengeluaran per tanggal di bulan ini
+  
+  // ✅ Hitung total pengeluaran per tanggal di bulan yang dipilih
   const dailyExpenses: Record<number, number> = {};
   transactions.forEach(t => {
     if (t.type === 'expense') {
       const d = parseLocalDate(t.date);
-      if (d.getMonth() === month && d.getFullYear() === year) {
+      if (d.getMonth() === calendarMonth && d.getFullYear() === calendarYear) {
         const dateKey = d.getDate();
         dailyExpenses[dateKey] = (dailyExpenses[dateKey] || 0) + t.amount;
       }
     }
   });
-
+  
+  // ✅ Statistik bulan ini
+  const totalMonthExpense = Object.values(dailyExpenses).reduce((sum, v) => sum + v, 0);
+  const activeDays = Object.keys(dailyExpenses).length;
+  const avgPerDay = activeDays > 0 ? totalMonthExpense / activeDays : 0;
+  const maxDay = Object.entries(dailyExpenses).sort(([,a], [,b]) => b - a)[0];
+  
   // ✅ Tentukan hari pertama bulan (Senin = 0, Minggu = 6)
-  let startDayOfWeek = firstDay.getDay(); // 0=Minggu, 1=Senin...
+  let startDayOfWeek = firstDay.getDay();
   startDayOfWeek = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
-
+  
   // ✅ Buat array untuk grid kalender
   const calendarDays: { day: number | null; isCurrentMonth: boolean }[] = [];
   for (let i = 0; i < startDayOfWeek; i++) calendarDays.push({ day: null, isCurrentMonth: false });
   for (let d = 1; d <= daysInMonth; d++) calendarDays.push({ day: d, isCurrentMonth: true });
   while (calendarDays.length % 7 !== 0) calendarDays.push({ day: null, isCurrentMonth: false });
-
+  
   // ✅ Tentukan warna berdasarkan intensitas pengeluaran
   const maxExpense = Math.max(...Object.values(dailyExpenses), 1);
   const getColor = (amount: number) => {
@@ -3373,27 +3382,117 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
     if (ratio < 0.75) return 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300';
     return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300';
   };
-
+  
+  // ✅ Fungsi navigasi
+  const goToPrevMonth = () => {
+    if (calendarMonth === 0) {
+      setCalendarMonth(11);
+      setCalendarYear(calendarYear - 1);
+    } else {
+      setCalendarMonth(calendarMonth - 1);
+    }
+  };
+  
+  const goToNextMonth = () => {
+    if (calendarMonth === 11) {
+      setCalendarMonth(0);
+      setCalendarYear(calendarYear + 1);
+    } else {
+      setCalendarMonth(calendarMonth + 1);
+    }
+  };
+  
+  const goToToday = () => {
+    setCalendarMonth(now.getMonth());
+    setCalendarYear(now.getFullYear());
+  };
+  
+  // Batasi navigasi: tidak boleh lebih dari bulan sekarang
+  const isMaxMonth = calendarMonth === now.getMonth() && calendarYear === now.getFullYear();
+  
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
-      <h3 className="font-bold text-sm mb-3 text-slate-900 dark:text-white flex items-center gap-1.5">
-        🗓️ Kalender Pengeluaran ({format(now, 'MMMM yyyy', { locale: id })})
-      </h3>
-
+      {/* ✅ HEADER DENGAN NAVIGASI */}
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+          🗓️ Kalender Pengeluaran
+        </h3>
+        
+        {/* Navigasi Bulan */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={goToPrevMonth}
+            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center active:scale-90 transition-all"
+            aria-label="Bulan sebelumnya"
+          >
+            <ChevronLeft className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+          </button>
+          
+          <button
+            onClick={goToToday}
+            disabled={isCurrentMonth}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all min-w-[130px] text-center ${
+              isCurrentMonth 
+                ? 'bg-blue-500 text-white cursor-default' 
+                : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95'
+            }`}
+          >
+            {format(new Date(calendarYear, calendarMonth, 1), 'MMMM yyyy', { locale: id })}
+            {!isCurrentMonth && (
+              <span className="ml-1 text-[9px] opacity-70">↺</span>
+            )}
+          </button>
+          
+          <button
+            onClick={goToNextMonth}
+            disabled={isMaxMonth}
+            className={`w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-all ${
+              isMaxMonth 
+                ? 'bg-slate-50 dark:bg-slate-800 opacity-40 cursor-not-allowed' 
+                : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600'
+            }`}
+            aria-label="Bulan berikutnya"
+          >
+            <ChevronRight className="w-4 h-4 text-slate-700 dark:text-slate-300" />
+          </button>
+        </div>
+      </div>
+      
+      {/* ✅ RINGKASAN STATISTIK BULAN */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2">
+          <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Total</p>
+          <p className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+            {formatCompact(totalMonthExpense)}
+          </p>
+        </div>
+        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2">
+          <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Rata²/hari</p>
+          <p className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+            {formatCompact(avgPerDay)}
+          </p>
+        </div>
+        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2">
+          <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Terboros</p>
+          <p className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
+            {maxDay ? `Tgl ${maxDay[0]} (${formatCompact(maxDay[1])})` : '-'}
+          </p>
+        </div>
+      </div>
+      
       {/* Header Hari (Senin - Minggu) */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map(d => (
           <div key={d} className="text-[10px] text-center text-slate-500 dark:text-slate-400 font-bold py-1">{d}</div>
         ))}
       </div>
-
+      
       {/* Grid Kalender */}
       <div className="grid grid-cols-7 gap-1">
         {calendarDays.map((item, idx) => {
           const amount = item.day ? (dailyExpenses[item.day] || 0) : 0;
-          const isToday = item.day === now.getDate();
+          const isToday = isCurrentMonth && item.day === now.getDate();
           const colorClass = item.day ? getColor(amount) : 'bg-transparent';
-
           return (
             <div
               key={idx}
@@ -3405,12 +3504,9 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
             >
               {item.day && (
                 <>
-                  {/* Tanggal */}
                   <span className={`text-[10px] leading-none ${isToday ? 'font-extrabold text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
                     {item.day}
                   </span>
-                  
-                  {/* Nominal Pengeluaran */}
                   {amount > 0 && (
                     <span className="text-[8px] sm:text-[9px] font-bold leading-tight mt-0.5 truncate w-full text-center">
                       {formatCalendarAmount(amount)}
@@ -3422,7 +3518,7 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           );
         })}
       </div>
-
+      
       {/* Legend / Keterangan Warna */}
       <div className="flex items-center justify-between mt-3 text-[10px]">
         <div className="flex items-center gap-1">
@@ -3433,10 +3529,15 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           <div className="w-3 h-3 rounded bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800" />
           <span className="text-slate-500 dark:text-slate-400">Boros</span>
         </div>
+        {!isCurrentMonth && (
+          <span className="text-[9px] text-blue-500 dark:text-blue-400 font-semibold">
+            📊 {activeDays} hari aktif
+          </span>
+        )}
       </div>
     </div>
   );
-})()}               
+})()}            
 
                   {/* Smart Anomaly Detection (FIXED: Per Kategori) */}
                   {(() => {
