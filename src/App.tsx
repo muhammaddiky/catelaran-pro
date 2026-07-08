@@ -177,6 +177,40 @@ const categoryExamples: Record<string, string[]> = {
   perawatan_diri: ['Potong rambut', 'Skincare & kosmetik', 'Salon & spa'],
 };
 
+// ==================== BOOK VISUAL HELPERS ====================
+// ✅ Mapping warna buku ke gradient Tailwind
+const getBookGradient = (color: string): string => {
+  const gradients: Record<string, string> = {
+    blue: 'from-blue-500 via-cyan-500 to-sky-500',
+    green: 'from-green-500 via-emerald-500 to-teal-500',
+    purple: 'from-purple-500 via-violet-500 to-fuchsia-500',
+    red: 'from-red-500 via-rose-500 to-pink-500',
+    orange: 'from-orange-500 via-amber-500 to-yellow-500',
+    pink: 'from-pink-500 via-rose-500 to-fuchsia-500',
+    indigo: 'from-indigo-500 via-blue-500 to-cyan-500',
+    yellow: 'from-yellow-500 via-amber-500 to-orange-500',
+    cyan: 'from-cyan-500 via-sky-500 to-blue-500',
+    teal: 'from-teal-500 via-emerald-500 to-green-500',
+  };
+  return gradients[color] || gradients['blue'];
+};
+
+// ✅ Mapping warna buku ke shadow color (untuk inline style)
+const getBookShadowColor = (color: string): string => {
+  const shadows: Record<string, string> = {
+    blue: 'rgba(59, 130, 246, 0.35)',
+    green: 'rgba(16, 185, 129, 0.35)',
+    purple: 'rgba(139, 92, 246, 0.35)',
+    red: 'rgba(239, 68, 68, 0.35)',
+    orange: 'rgba(249, 115, 22, 0.35)',
+    pink: 'rgba(236, 72, 153, 0.35)',
+    indigo: 'rgba(99, 102, 241, 0.35)',
+    yellow: 'rgba(234, 179, 8, 0.35)',
+    cyan: 'rgba(6, 182, 212, 0.35)',
+    teal: 'rgba(20, 184, 166, 0.35)',
+  };
+  return shadows[color] || shadows['blue'];
+};
 
 // ==================== UTILS ====================
 // ✅ HELPER: Parse tanggal string ke Date LOKAL (bukan UTC)
@@ -1641,6 +1675,19 @@ const handleUpdateRecurring = async () => {
 
   const isDark = theme === 'dark';
 
+  // ✅ DEBUG: Cek icon buku
+useEffect(() => {
+  if (activeBook) {
+    console.log('📚 Active Book Details:', {
+      id: activeBook.id,
+      name: activeBook.name,
+      icon: activeBook.icon,
+      iconCode: activeBook.icon ? activeBook.icon.codePointAt(0)?.toString(16) : 'N/A',
+      color: activeBook.color,
+    });
+  }
+}, [activeBook]);
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 11) return 'Pagi';
@@ -1867,17 +1914,42 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
     {/* Row 1: Book Switcher + User Info */}
     <div className="flex items-center justify-between mb-2">
       <div className="flex items-center gap-2 flex-1 min-w-0">
-  {/* Book Switcher Button */}
   {!isFamilyMode && (
-    <button
-      onClick={() => setShowBookManager(!showBookManager)}
-      className="flex items-center gap-1.5 bg-gradient-to-br from-blue-500 to-purple-500 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-md active:scale-95 transition-transform flex-shrink-0"
-    >
-      <span className="text-base">{activeBook?.icon || '📘'}</span>
-      <span className="truncate max-w-[120px]">{activeBook?.name || 'Pilih Buku'}</span>
-      <ChevronRight className={`w-3 h-3 transition-transform ${showBookManager ? 'rotate-90' : ''}`} />
-    </button>
-  )}
+  <button
+    onClick={() => setShowBookManager(!showBookManager)}
+    className={`
+      relative flex items-center gap-1.5 
+      bg-gradient-to-br ${getBookGradient(activeBook?.color || 'blue')}
+      text-white 
+      px-3.5 py-2 rounded-full 
+      text-xs font-extrabold 
+      shadow-lg active:scale-95 transition-all flex-shrink-0
+      border-2 border-white/30
+      animate-book-pulse
+    `}
+    style={{ 
+      boxShadow: `0 4px 15px ${getBookShadowColor(activeBook?.color || 'blue')}`,
+    }}
+  >
+    {/* ✅ ANIMASI GLOW BACKGROUND */}
+    <span className="absolute inset-0 rounded-full bg-white/20 animate-ping-slow opacity-30 pointer-events-none" />
+    
+    {/* Icon Buku */}
+    <span className="text-lg leading-none relative z-10">
+      {activeBook?.icon || '📘'}
+    </span>
+    
+    {/* Nama Buku - BOLD */}
+    <span className="truncate max-w-[110px] relative z-10 font-extrabold tracking-wide">
+      {activeBook?.name || 'Pilih Buku'}
+    </span>
+    
+    {/* Chevron */}
+    <ChevronRight 
+      className={`w-3.5 h-3.5 transition-transform relative z-10 ${showBookManager ? 'rotate-90' : ''}`} 
+    />
+  </button>
+)}
 
   {/* ✅ MODE KELUARGA TOGGLE */}
   <button
@@ -2087,17 +2159,53 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           {/* DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-4">
-              <div className="bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-2xl p-4 shadow-lg shadow-blue-500/20 text-white">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-full flex items-center justify-center text-xl">
-                    {getGreetingEmoji()}
-                  </div>
-                  <div>
-                    <h2 className="font-bold text-lg leading-tight">{getGreeting()}, {profile?.full_name?.split(' ')[0] || 'User'}!</h2>
-                    <p className="text-[11px] text-white/80">{getMotivationalQuote()}</p>
-                  </div>
-                </div>
-              </div>
+              
+              {/* ✅ GREETING CARD - COLOR CODED + ICON CUSTOM (FIXED) */}
+<div 
+  className={`bg-gradient-to-br ${getBookGradient(activeBook?.color || 'blue')} rounded-2xl p-4 shadow-lg text-white relative overflow-hidden`}
+  style={{ boxShadow: `0 10px 25px -5px ${getBookShadowColor(activeBook?.color || 'blue')}` }}
+>
+  {/* Decorative Blobs */}
+  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16 blur-2xl pointer-events-none" />
+  <div className="absolute bottom-0 left-0 w-24 h-24 bg-black/10 rounded-full translate-y-12 -translate-x-12 blur-xl pointer-events-none" />
+  
+  <div className="relative flex items-center gap-3">
+    {/* ✅ ICON BUKU - DENGAN FONT YANG ROBUST */}
+    <div 
+      className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-inner flex-shrink-0 border border-white/10"
+      style={{ 
+        fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Segoe UI Symbol", sans-serif',
+        fontSize: '2rem',
+        lineHeight: '1',
+      }}
+    >
+      {/* ✅ RENDER ICON DENGAN FALLBACK BERLAPIS */}
+      <span 
+        className="block w-full h-full flex items-center justify-center"
+        style={{ 
+          fontFamily: 'inherit',
+          textRendering: 'optimizeLegibility',
+          WebkitFontSmoothing: 'antialiased',
+        }}
+      >
+        {activeBook?.icon && activeBook.icon.trim() !== '' && activeBook.icon.trim() !== 'null' && activeBook.icon.trim() !== 'undefined' 
+          ? activeBook.icon.trim() 
+          : '📘'}
+      </span>
+    </div>
+    
+    <div className="flex-1 min-w-0">
+      {/* Nama Buku Prominent */}
+      <p className="text-[10px] text-white/70 font-semibold uppercase tracking-wider mb-0.5 truncate">
+        📚 {activeBook?.name || 'Buku'}
+      </p>
+      <h2 className="font-bold text-lg leading-tight truncate">
+        {getGreeting()}, {profile?.full_name?.split(' ')[0] || 'User'}! {getGreetingEmoji()}
+      </h2>
+      <p className="text-[11px] text-white/80 mt-0.5 line-clamp-2">{getMotivationalQuote()}</p>
+    </div>
+  </div>
+</div>
               
               <div className="grid grid-cols-2 gap-3">
                <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-4 shadow-lg shadow-green-500/20">

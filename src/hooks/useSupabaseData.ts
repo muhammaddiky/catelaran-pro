@@ -265,20 +265,42 @@ export function useSupabaseData(isFamilyMode: boolean = false) {
 
   // ========== BOOK CRUD ==========
   const createBook = async (name: string, icon: string, color: string) => {
-    if (!user) return null;
-    if (books.length >= 10) { toast.error('Maksimal 10 buku!'); return null; }
-    const { data, error } = await supabase
-      .from('books')
-      .insert({ user_id: user.id, name, icon, color, is_default: false })
-      .select()
-      .single();
-    if (error) { toast.error('Gagal buat buku'); return null; }
-    setBooks(prev => [...prev, data]);
-    setActiveBook(data);
-    toast.success(`Buku "${name}" dibuat! 📚`);
-    return data;
-  };
-
+  if (!user) return null;
+  if (books.length >= 10) { toast.error('Maksimal 10 buku!'); return null; }
+  
+  // ✅ VALIDASI: Pastikan icon tidak kosong dan bukan string "null"/"undefined"
+  let validIcon = icon;
+  if (!icon || icon.trim() === '' || icon === 'null' || icon === 'undefined') {
+    validIcon = '📘'; // Default book icon
+    console.warn('⚠️ Icon invalid, menggunakan default:', validIcon);
+  }
+  
+  // ✅ SANITIZE: Hapus whitespace dan karakter tersembunyi
+  validIcon = validIcon.trim();
+  
+  const { data, error } = await supabase
+    .from('books')
+    .insert({ 
+      user_id: user.id, 
+      name, 
+      icon: validIcon, // ✅ PAKAI validIcon yang sudah sanitized
+      color, 
+      is_default: false 
+    })
+    .select()
+    .single();
+    
+  if (error) { 
+    toast.error('Gagal buat buku'); 
+    console.error('❌ Create book error:', error);
+    return null; 
+  }
+  
+  setBooks(prev => [...prev, data]);
+  setActiveBook(data);
+  toast.success(`Buku "${name}" dibuat! 📚`);
+  return data;
+};
   const renameBook = async (id: string, newName: string) => {
     const { data, error } = await supabase.from('books').update({ name: newName }).eq('id', id).select().single();
     if (error) { toast.error('Gagal rename'); return null; }
@@ -303,11 +325,24 @@ export function useSupabaseData(isFamilyMode: boolean = false) {
     return true;
   };
 
-  const switchBook = (book: Book) => {
-    setActiveBook(book);
-    if (user) localStorage.setItem(`active_book_${user.id}`, book.id);
-    toast(`Beralih ke ${book.icon} ${book.name}`);
-  };
+ const switchBook = (book: Book) => {
+  // ✅ VALIDASI ICON SEBELUM SWITCH
+  if (!book.icon || book.icon.trim() === '' || book.icon === 'null' || book.icon === 'undefined') {
+    console.warn('⚠️ Book icon invalid, akan menggunakan default:', book.id);
+    // Opsional: Update database dengan icon default
+    supabase
+      .from('books')
+      .update({ icon: '📘' })
+      .eq('id', book.id)
+      .then(({ error }) => {
+        if (error) console.error('Failed to update icon:', error);
+      });
+  }
+  
+  setActiveBook(book);
+  if (user) localStorage.setItem(`active_book_${user.id}`, book.id);
+  toast(`Beralih ke ${book.icon || '📘'} ${book.name}`);
+};
 
   // ========== TRANSACTION CRUD ==========
   const addTransaction = async (t: Omit<SupabaseTransaction, 'id' | 'user_id' | 'book_id' | 'created_at'> & { id?: string }) => {

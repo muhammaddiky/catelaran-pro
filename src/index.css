@@ -227,3 +227,58 @@ html.dark {
   background-color: #3b82f6 !important;
   color: #ffffff !important;
 }
+
+/* ✅ ANIMASI KELAP-KELIP SUBTLE UNTUK TOMBOL BUKU */
+@keyframes book-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+  }
+}
+
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  75%, 100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
+.animate-book-pulse {
+  animation: book-pulse 0.5s ease-in-out infinite;
+}
+
+.animate-ping-slow {
+  animation: ping-slow 0.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* ✅ HENTIKAN ANIMASI SAAT HOVER/ACTIVE (agar tidak mengganggu saat diklik) */
+button:hover .animate-book-pulse,
+button:active .animate-book-pulse {
+  animation-play-state: paused;
+}
+
+button:hover .animate-ping-slow,
+button:active .animate-ping-slow {
+  animation-play-state: paused;
+}
+
+/* ✅ DARK MODE: Sesuaikan intensity animasi */
+.dark .animate-book-pulse {
+  animation: book-pulse 2.5s ease-in-out infinite;
+}
+
+/* ✅ REDUCED MOTION: Matikan animasi untuk user yang sensitif */
+@media (prefers-reduced-motion: reduce) {
+  .animate-book-pulse,
+  .animate-ping-slow {
+    animation: none !important;
+  }
+}
