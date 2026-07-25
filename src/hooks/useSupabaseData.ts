@@ -391,7 +391,7 @@ export function useSupabaseData(isFamilyMode: boolean = false) {
     if (transaction) {
       const refMatch = transaction.notes?.match(/\[ref:([a-zA-Z0-9-]+)\]/);
       if (refMatch && refMatch[1]) {
-        await deleteGoalContribution(refMatch[1]);
+        await deleteGoalContribution(refMatch[1], true);
         return true;
       }
     }
@@ -534,35 +534,38 @@ export function useSupabaseData(isFamilyMode: boolean = false) {
     return data;
   };
 
-  const deleteGoalContribution = async (id: string) => {
-    const contribution = goalContributions.find(c => c.id === id);
-    if (!contribution) return false;
+  const deleteGoalContribution = async (id: string, skipLinkedTx: boolean = false) => {
+  const contribution = goalContributions.find(c => c.id === id);
+  if (!contribution) return false;
 
+  // ✅ FIX REKURSI: Hanya hapus transaksi terkait jika TIDAK dipanggil dari deleteTransaction
+  // Ketika deleteTransaction memanggil kita, dia sudah bertanggung jawab atas dirinya sendiri.
+  // Kita tidak boleh memanggil balik deleteTransaction → itu yang bikin infinite loop.
+  if (!skipLinkedTx) {
     const linkedTransaction = transactions.find(t => 
       t.type === 'expense' && 
       t.category === 'investasi_exp' && 
       t.notes?.includes(`[ref:${id}]`)
     );
-
     if (linkedTransaction) {
-      await deleteTransaction(linkedTransaction.id);
+      // Hapus langsung via Supabase (bypass deleteTransaction agar tidak loop)
+      await supabase.from('transactions').delete().eq('id', linkedTransaction.id);
+      setTransactions(prev => prev.filter(t => t.id !== linkedTransaction.id));
     }
+  }
 
-    const { error } = await supabase
-      .from('goal_contributions')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast.error('Gagal menghapus riwayat');
-      return false;
-    }
-
-    setGoalContributions(prev => prev.filter(c => c.id !== id));
-    await incrementGoalAmount(contribution.goal_id, -contribution.amount);
-
-    return true;
-  };
+  const { error } = await supabase
+    .from('goal_contributions')
+    .delete()
+    .eq('id', id);
+  if (error) {
+    toast.error('Gagal menghapus riwayat');
+    return false;
+  }
+  setGoalContributions(prev => prev.filter(c => c.id !== id));
+  await incrementGoalAmount(contribution.goal_id, -contribution.amount);
+  return true;
+};
 
   // ========== RECURRING CRUD ==========
   const addRecurring = async (r: Omit<SupabaseRecurring, 'id' | 'user_id' | 'book_id'>) => {
