@@ -3517,6 +3517,25 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
   
   // Batasi navigasi: tidak boleh lebih dari bulan sekarang
   const isMaxMonth = calendarMonth === now.getMonth() && calendarYear === now.getFullYear();
+
+  // ✅ BARU: Klik tanggal → lompat ke Riwayat pada hari tersebut
+const handleDayClick = (day: number) => {
+  const mm = String(calendarMonth + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  const dateStr = `${calendarYear}-${mm}-${dd}`;
+  setPeriodFilter('custom');
+  setCustomStartDate(dateStr);
+  setCustomEndDate(dateStr);
+  setActiveTab('history');
+};
+// ✅ BARU: Cek apakah suatu tanggal sedang aktif difilter (untuk highlight hijau)
+const isDayActive = (day: number) => {
+  if (periodFilter !== 'custom' || !customStartDate || !customEndDate) return false;
+  const mm = String(calendarMonth + 1).padStart(2, '0');
+  const dd = String(day).padStart(2, '0');
+  const dateStr = `${calendarYear}-${mm}-${dd}`;
+  return customStartDate === dateStr && customEndDate === dateStr;
+};
   
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md">
@@ -3597,34 +3616,51 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
       
       {/* Grid Kalender */}
       <div className="grid grid-cols-7 gap-1">
-        {calendarDays.map((item, idx) => {
-          const amount = item.day ? (dailyExpenses[item.day] || 0) : 0;
-          const isToday = isCurrentMonth && item.day === now.getDate();
-          const colorClass = item.day ? getColor(amount) : 'bg-transparent';
-          return (
-            <div
-              key={idx}
-              className={`aspect-square rounded-lg flex flex-col items-center justify-center p-1 border transition-all relative
-                ${colorClass}
-                ${isToday ? 'ring-2 ring-blue-500 dark:ring-blue-400 font-bold shadow-md' : 'border-slate-100 dark:border-slate-700'}
-                ${!item.isCurrentMonth ? 'opacity-0 pointer-events-none' : ''}
-              `}
-            >
-              {item.day && (
-                <>
-                  <span className={`text-[10px] leading-none ${isToday ? 'font-extrabold text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
-                    {item.day}
-                  </span>
-                  {amount > 0 && (
-                    <span className="text-[8px] sm:text-[9px] font-bold leading-tight mt-0.5 truncate w-full text-center">
-                      {formatCalendarAmount(amount)}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          );
-        })}
+       {calendarDays.map((item, idx) => {
+       const amount = item.day ? (dailyExpenses[item.day] || 0) : 0;
+       const isToday = isCurrentMonth && item.day === now.getDate();
+       const active = item.day ? isDayActive(item.day) : false;
+       const colorClass = item.day ? getColor(amount) : 'bg-transparent';
+       return (
+         <div
+           key={idx}
+           role={item.day ? 'button' : undefined}
+           tabIndex={item.day ? 0 : undefined}
+           aria-label={item.day ? `Lihat riwayat tanggal ${item.day}, total pengeluaran ${formatCurrency(amount)}` : undefined}
+           title={item.day ? `Klik untuk lihat riwayat tgl ${item.day}` : undefined}
+           onClick={item.day ? () => handleDayClick(item.day) : undefined}
+           onKeyDown={item.day ? (e) => {
+             if (e.key === 'Enter' || e.key === ' ') {
+               e.preventDefault();
+               handleDayClick(item.day);
+             }
+           } : undefined}
+           className={`aspect-square rounded-lg flex flex-col items-center justify-center p-1 border transition-all relative
+             ${colorClass}
+             ${active
+               ? 'ring-2 ring-emerald-500 dark:ring-emerald-400 font-bold shadow-md z-10'
+               : isToday
+                 ? 'ring-2 ring-blue-500 dark:ring-blue-400 font-bold shadow-md'
+                 : 'border-slate-100 dark:border-slate-700'}
+             ${!item.isCurrentMonth ? 'opacity-0 pointer-events-none' : ''}
+             ${item.day ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md hover:brightness-95 dark:hover:brightness-125 active:scale-95 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500' : ''}
+           `}
+         >
+           {item.day && (
+             <>
+               <span className={`text-[10px] leading-none ${isToday ? 'font-extrabold text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
+                 {item.day}
+               </span>
+               {amount > 0 && (
+                 <span className="text-[8px] sm:text-[9px] font-bold leading-tight mt-0.5 truncate w-full text-center">
+                   {formatCalendarAmount(amount)}
+                 </span>
+               )}
+             </>
+           )}
+         </div>
+       );
+     })}
       </div>
       
       {/* Legend / Keterangan Warna */}
