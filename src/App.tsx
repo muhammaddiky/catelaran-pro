@@ -294,6 +294,19 @@ export default function CatanKeuangan() {
     const [includeTax, setIncludeTax] = useState(false);
     const [taxRate, setTaxRate] = useState<'10' | '11'>('11');
 
+    // ✅ STATE BARU: Info Cicilan (Opsi B - Kalkulator Lengkap)
+    const [showCicilanDetails, setShowCicilanDetails] = useState(false);
+    const [cicilanForm, setCicilanForm] = useState({
+      subtotal: '',       // Subtotal pesanan (harga barang)
+      shipping: '0',      // Ongkir
+      serviceFee: '0',    // Biaya layanan
+      discount: '0',      // Diskon (voucher + diskon ongkir)
+      rate: '0',          // Bunga % per bulan (flat)
+      tenor: '3',         // Jumlah bulan
+      adminFee: '0',      // Admin fee per bulan (Rp)
+});
+
+
     // ========== STATE UNTUK SALDO BULANAN ==========
     const [showSaldoAwalModal, setShowSaldoAwalModal] = useState(false);
     const [showSaldoAkhirModal, setShowSaldoAkhirModal] = useState(false);
@@ -352,6 +365,54 @@ const parseItemsFromNotes = (notes?: string | null): Array<{ name: string; qty: 
   return [];
 };
 
+// ✅ HELPER: Parse info cicilan dari notes
+const parseCicilanFromNotes = (notes?: string | null): {
+  itemPrice: number; rate: number; tenor: number; adminFee: number;
+} | null => {
+  if (!notes) return null;
+  try {
+    const match = notes.match(/\[cicilan:([\s\S]*?)\]/);
+    if (match && match[1]) {
+      const parsed = JSON.parse(match[1]);
+      if (parsed && typeof parsed.itemPrice === 'number') {
+        return {
+          itemPrice: parsed.itemPrice,
+          rate: parsed.rate ?? 0,
+          tenor: parsed.tenor ?? 3,
+          adminFee: parsed.adminFee ?? 0,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Gagal parse cicilan:', e);
+  }
+  return null;
+};
+
+// ✅ HELPER: Serialize info cicilan ke notes
+const serializeCicilanToNotes = (
+  cicilan: { itemPrice: number; rate: number; tenor: number; adminFee: number } | null,
+  originalNotes?: string | null
+): string | null => {
+  // Hapus tag cicilan lama (valid ATAU rusak)
+  let base = (originalNotes || '')
+    .replace(/\[cicilan:[\s\S]*?\]/g, '')
+    .replace(/\[cicilan:[\s\S]*$/g, '')
+    .replace(/]\s*$/, '')
+    .replace(/^\]\s*/, '')
+    .trim();
+  if (cicilan && cicilan.tenor > 0 && cicilan.itemPrice > 0) {
+    try {
+      const json = JSON.stringify(cicilan);
+      JSON.parse(json); // validasi
+      base = `${base} [cicilan:${json}]`.trim();
+    } catch (e) {
+      console.error('❌ Gagal serialize cicilan:', e);
+    }
+  }
+  return base || null;
+};
+
 // ✅ HELPER: Serialize items ke notes (CLEAN BEFORE SAVE)
 const serializeItemsToNotes = (
   items: Array<{ name: string; qty: number; price: number }>, 
@@ -390,6 +451,36 @@ const itemsTotal = useMemo(() => {
   }
   return subtotal;
 }, [transactionItems, includeTax, taxRate]);
+
+// ✅ KALKULASI CICILAN (Opsi B - Lengkap)
+const cicilanBreakdown = useMemo(() => {
+  if (!showCicilanDetails) return null;
+  const subtotal = parseInt(cicilanForm.subtotal.replace(/\D/g, '')) || 0;
+  const shipping = parseInt(cicilanForm.shipping.replace(/\D/g, '')) || 0;
+  const serviceFee = parseInt(cicilanForm.serviceFee.replace(/\D/g, '')) || 0;
+  const discount = parseInt(cicilanForm.discount.replace(/\D/g, '')) || 0;
+  const rate = parseFloat(cicilanForm.rate) || 0;
+  const tenor = parseInt(cicilanForm.tenor) || 0;
+  const adminFee = parseInt(cicilanForm.adminFee.replace(/\D/g, '')) || 0;
+  
+  // Total yang dicicil = subtotal + ongkir + biaya layanan - diskon
+  const totalCicilan = Math.max(0, subtotal + shipping + serviceFee - discount);
+  if (totalCicilan <= 0 || tenor <= 0) return null;
+  
+  // Rumus flat: cicilan/bulan = (total/tenor) + (total × rate%) + adminFee
+  const principalPerMonth = totalCicilan / tenor;
+  const interestPerMonth = totalCicilan * (rate / 100);
+  const cicilanPerMonth = Math.round(principalPerMonth + interestPerMonth + adminFee);
+  const totalBayar = cicilanPerMonth * tenor;
+  const totalBunga = totalBayar - totalCicilan;
+  
+  return {
+    subtotal, shipping, serviceFee, discount,
+    totalCicilan, rate, tenor, adminFee,
+    cicilanPerMonth, totalBayar, totalBunga,
+    interestPerMonth: Math.round(interestPerMonth),
+  };
+}, [showCicilanDetails, cicilanForm]);
 
 // ✅ HITUNG PAJAK SAJA (untuk display)
 const taxAmount = useMemo(() => {
@@ -1031,12 +1122,28 @@ const handleSaveSaldoAwal = async () => {
 
   const handleAddTransaction = async () => {
   if (!formData.description || !formData.amount) { notify.error('Deskripsi & nominal wajib diisi!'); return; }
-    // ✅ Gabungkan items + tax info ke notes
+    // ✅ Gabungkan items + tax + cicilan info ke notes
 let finalNotes = serializeItemsToNotes(transactionItems, formData.notes);
-
 // Tambah tax info jika includeTax aktif
 if (includeTax && transactionItems.length > 0) {
-  finalNotes = (finalNotes || '') + ` [tax:${taxRate}%]`.trim();
+  finalNotes = (finalNotes || '') + `[tax:${taxRate}%]`.trim();
+}
+// ✅ Tambah info cicilan jika panel aktif & data valid
+if (showCicilanDetails) {
+  const subtotal = parseInt(cicilanForm.subtotal.replace(/\D/g, '')) || 0;
+  const shipping = parseInt(cicilanForm.shipping.replace(/\D/g, '')) || 0;
+  const serviceFee = parseInt(cicilanForm.serviceFee.replace(/\D/g, '')) || 0;
+  const discount = parseInt(cicilanForm.discount.replace(/\D/g, '')) || 0;
+  const rate = parseFloat(cicilanForm.rate) || 0;
+  const tenor = parseInt(cicilanForm.tenor) || 0;
+  const adminFee = parseInt(cicilanForm.adminFee.replace(/\D/g, '')) || 0;
+  const totalCicilan = Math.max(0, subtotal + shipping + serviceFee - discount);
+  if (totalCicilan > 0 && tenor > 0) {
+    finalNotes = serializeCicilanToNotes(
+      { itemPrice: totalCicilan, rate, tenor, adminFee },
+      finalNotes
+    );
+  }
 }
 
 // ✅ Pastikan format tanggal YYYY-MM-DD tanpa timezone
@@ -1066,6 +1173,8 @@ const payload = {
     setIncludeTax(false);
     setTaxRate('11');
     setActiveTab('history');
+    setShowCicilanDetails(false);
+    setCicilanForm({ itemPrice: '', rate: '0', tenor: '3', adminFee: '0' });
 };
 
  // ✅ FUNGSI UTAMA: Hapus dengan Konfirmasi & Fitur Urungkan
@@ -1199,6 +1308,25 @@ const handleUndoDelete = async (toastId: string, tx: Transaction) => {
     setIncludeTax(false);
     setTaxRate('11');
   }
+
+  // ✅ LOAD INFO CICILAN DARI NOTES (jika ada)
+const cicilanData = parseCicilanFromNotes(t.notes);
+if (cicilanData) {
+  setShowCicilanDetails(true);
+  // Restore sebagai subtotal (asumsi ongkir/serviceFee/discount = 0 jika tidak ada data)
+  setCicilanForm({
+    subtotal: cicilanData.itemPrice.toString(),
+    shipping: '0',
+    serviceFee: '0',
+    discount: '0',
+    rate: cicilanData.rate.toString(),
+    tenor: cicilanData.tenor.toString(),
+    adminFee: cicilanData.adminFee.toString(),
+  });
+} else {
+  setShowCicilanDetails(false);
+  setCicilanForm({ subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0' });
+}
   
   setEditingId(t.id);
   setActiveTab('input');
@@ -2766,6 +2894,199 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
     )}
   </div>
 )}
+
+                  {/* ✅ PANEL INFO CICILAN (OPSI B - KALKULATOR LENGKAP ala Shopee) */}
+            {/* ⚠️ HANYA MUNCUL DI PENGELUARAN (bukan pemasukan) */}
+            {formData.type === 'expense' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCicilanDetails(!showCicilanDetails);
+                    // Auto-fill subtotal dari amount jika panel baru dibuka
+                    if (!showCicilanDetails && formData.amount && !cicilanForm.subtotal) {
+                      setCicilanForm(prev => ({ ...prev, subtotal: formData.amount }));
+                    }
+                  }}
+                  className="mt-2 text-xs font-semibold text-purple-500 hover:text-purple-600 flex items-center gap-1"
+                >
+                  {showCicilanDetails ? '▼ Sembunyikan Info Cicilan' : '+ Tambahkan Info Cicilan'}
+                </button>
+
+                {showCicilanDetails && (
+                  <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3 space-y-3 border border-purple-200 dark:border-purple-800">
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                      💳 Kalkulator Cicilan (Flat)
+                    </p>
+
+                    {/* Subtotal Pesanan */}
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                        Subtotal Pesanan (Harga Barang)
+                      </label>
+                      <input
+                        type="text"
+                        value={formatNominalDisplay(cicilanForm.subtotal)}
+                        onChange={(e) => setCicilanForm({ ...cicilanForm, subtotal: parseNominal(e.target.value).toString() })}
+                        placeholder="Rp 0"
+                        inputMode="numeric"
+                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                      />
+                    </div>
+
+                    {/* Ongkir + Biaya Layanan (side by side) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                          Ongkir
+                        </label>
+                        <input
+                          type="text"
+                          value={formatNominalDisplay(cicilanForm.shipping)}
+                          onChange={(e) => setCicilanForm({ ...cicilanForm, shipping: parseNominal(e.target.value).toString() })}
+                          placeholder="Rp 0"
+                          inputMode="numeric"
+                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                          Biaya Layanan
+                        </label>
+                        <input
+                          type="text"
+                          value={formatNominalDisplay(cicilanForm.serviceFee)}
+                          onChange={(e) => setCicilanForm({ ...cicilanForm, serviceFee: parseNominal(e.target.value).toString() })}
+                          placeholder="Rp 0"
+                          inputMode="numeric"
+                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Diskon */}
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                        Diskon (Voucher + Diskon Ongkir)
+                      </label>
+                      <input
+                        type="text"
+                        value={formatNominalDisplay(cicilanForm.discount)}
+                        onChange={(e) => setCicilanForm({ ...cicilanForm, discount: parseNominal(e.target.value).toString() })}
+                        placeholder="Rp 0"
+                        inputMode="numeric"
+                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                      />
+                    </div>
+
+                    {/* Total yang Dicicil (auto-calculate) */}
+                    {cicilanBreakdown && (
+                      <div className="bg-purple-100 dark:bg-purple-900/40 rounded-lg px-3 py-2 border-2 border-purple-300 dark:border-purple-700">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
+                            Total yang Dicicil:
+                          </span>
+                          <span className="text-sm font-extrabold text-purple-700 dark:text-purple-300 tabular-nums">
+                            {formatCurrency(cicilanBreakdown.totalCicilan)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Rate + Tenor (side by side) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                          Bunga (%/bulan)
+                        </label>
+                        <input
+                          type="number"
+                          value={cicilanForm.rate}
+                          onChange={(e) => setCicilanForm({ ...cicilanForm, rate: e.target.value })}
+                          placeholder="0"
+                          step="0.01"
+                          min="0"
+                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                          Tenor (bulan)
+                        </label>
+                        <input
+                          type="number"
+                          value={cicilanForm.tenor}
+                          onChange={(e) => setCicilanForm({ ...cicilanForm, tenor: e.target.value })}
+                          placeholder="3"
+                          min="1"
+                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Admin Fee */}
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
+                        Admin Fee / bulan
+                      </label>
+                      <input
+                        type="text"
+                        value={formatNominalDisplay(cicilanForm.adminFee)}
+                        onChange={(e) => setCicilanForm({ ...cicilanForm, adminFee: parseNominal(e.target.value).toString() })}
+                        placeholder="Rp 0"
+                        inputMode="numeric"
+                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
+                      />
+                    </div>
+
+                    {/* Hasil Kalkulasi */}
+                    {cicilanBreakdown && (
+                      <div className="bg-white dark:bg-slate-800 rounded-lg p-3 space-y-2 border border-purple-300 dark:border-purple-700">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400">Cicilan/bulan:</span>
+                          <span className="text-sm font-extrabold text-purple-600 dark:text-purple-400">
+                            {formatCurrency(cicilanBreakdown.cicilanPerMonth)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400">Total bayar:</span>
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {formatCurrency(cicilanBreakdown.totalBayar)}
+                          </span>
+                        </div>
+                        {cicilanBreakdown.totalBunga > 0 && (
+                          <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700">
+                            <span className="text-[11px] text-slate-600 dark:text-slate-400">Total bunga:</span>
+                            <span className="text-xs font-bold text-red-600 dark:text-red-400">
+                              +{formatCurrency(cicilanBreakdown.totalBunga)} ⚠️
+                            </span>
+                          </div>
+                        )}
+                        {cicilanBreakdown.rate === 0 && cicilanBreakdown.adminFee === 0 && (
+                          <div className="text-center pt-1">
+                            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full">
+                              ✨ Cicilan 0% — Tidak ada bunga!
+                            </span>
+                          </div>
+                        )}
+                        {/* Tombol pakai hasil kalkulasi sebagai amount */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, amount: cicilanBreakdown.cicilanPerMonth.toString() }));
+                            toast.success(`Nominal di-set ke cicilan/bulan: ${formatCurrency(cicilanBreakdown.cicilanPerMonth)}`);
+                          }}
+                          className="w-full mt-1 py-2 text-xs font-bold text-white bg-purple-500 hover:bg-purple-600 rounded-lg active:scale-95 transition-all"
+                        >
+                          💾 Pakai Cicilan/Bulan sebagai Nominal Transaksi
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}                  
+
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan</label>
                     <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} placeholder="Opsional"
@@ -5147,15 +5468,103 @@ const isDayActive = (day: number) => {
               );
             })()}
 
+                     {/* 2B. RINCIAN CICILAN (Opsi B - Kalkulator) */}
+         {(() => {
+           const cicilan = parseCicilanFromNotes(viewingTransaction.notes);
+           if (!cicilan) return null;
+           // Kalkulasi dari data yang tersimpan
+           const principalPerMonth = cicilan.itemPrice / cicilan.tenor;
+           const interestPerMonth = cicilan.itemPrice * (cicilan.rate / 100);
+           const cicilanPerMonth = Math.round(principalPerMonth + interestPerMonth + cicilan.adminFee);
+           const totalBayar = cicilanPerMonth * cicilan.tenor;
+           const totalBunga = totalBayar - cicilan.itemPrice;
+           return (
+             <div>
+               <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                 💳 Rincian Cicilan
+                 <span className="text-[9px] bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 px-1.5 py-0.5 rounded-full">
+                   {cicilan.tenor} bulan
+                 </span>
+               </p>
+               <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl border border-purple-200 dark:border-purple-800 overflow-hidden shadow-sm">
+                 {/* Harga Barang */}
+                 <div className="flex justify-between items-center px-3 py-2.5 border-b border-purple-100 dark:border-purple-800/50">
+                   <span className="text-xs text-slate-600 dark:text-slate-400">Harga Barang</span>
+                   <span className="text-sm font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                     {formatCurrency(cicilan.itemPrice)}
+                   </span>
+                 </div>
+                 {/* Bunga */}
+                 <div className="flex justify-between items-center px-3 py-2.5 border-b border-purple-100 dark:border-purple-800/50">
+                   <span className="text-xs text-slate-600 dark:text-slate-400">
+                     Bunga {cicilan.rate}%/bulan {cicilan.rate === 0 ? '(0%)' : '(flat)'}
+                   </span>
+                   <span className={`text-xs font-bold tabular-nums ${cicilan.rate > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                     {cicilan.rate > 0 ? `+${formatCurrency(Math.round(interestPerMonth))}/bln` : 'Gratis ✨'}
+                   </span>
+                 </div>
+                 {/* Admin Fee */}
+                 {cicilan.adminFee > 0 && (
+                   <div className="flex justify-between items-center px-3 py-2.5 border-b border-purple-100 dark:border-purple-800/50">
+                     <span className="text-xs text-slate-600 dark:text-slate-400">Admin Fee</span>
+                     <span className="text-xs font-bold text-orange-600 dark:text-orange-400 tabular-nums">
+                       +{formatCurrency(cicilan.adminFee)}/bln
+                     </span>
+                   </div>
+                 )}
+                 {/* Cicilan per Bulan */}
+                 <div className="flex justify-between items-center px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/30 border-b border-purple-200 dark:border-purple-700">
+                   <span className="text-xs font-bold text-purple-700 dark:text-purple-300">Cicilan/bulan</span>
+                   <span className="text-sm font-extrabold text-purple-700 dark:text-purple-300 tabular-nums">
+                     {formatCurrency(cicilanPerMonth)}
+                   </span>
+                 </div>
+                 {/* Total Bayar */}
+                 <div className="flex justify-between items-center px-3 py-2.5 border-b border-purple-100 dark:border-purple-800/50">
+                   <span className="text-xs text-slate-600 dark:text-slate-400">
+                     Total bayar ({cicilan.tenor}× {formatCurrency(cicilanPerMonth)})
+                   </span>
+                   <span className="text-xs font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                     {formatCurrency(totalBayar)}
+                   </span>
+                 </div>
+                 {/* Total Bunga */}
+                 {totalBunga > 0 && (
+                   <div className="flex justify-between items-center px-3 py-2.5 bg-red-50 dark:bg-red-900/20">
+                     <span className="text-xs font-bold text-red-700 dark:text-red-300">
+                       ⚠️ Total bunga terbuang
+                     </span>
+                     <span className="text-sm font-extrabold text-red-600 dark:text-red-400 tabular-nums">
+                       {formatCurrency(totalBunga)}
+                     </span>
+                   </div>
+                 )}
+                 {totalBunga === 0 && (
+                   <div className="flex justify-between items-center px-3 py-2.5 bg-green-50 dark:bg-green-900/20">
+                     <span className="text-xs font-bold text-green-700 dark:text-green-300">
+                       ✨ Cicilan 0% — Hemat bunga!
+                     </span>
+                     <span className="text-sm font-extrabold text-green-600 dark:text-green-400">
+                       Rp0
+                     </span>
+                   </div>
+                 )}
+               </div>
+             </div>
+           );
+         })()}
+
             {/* 3. CATATAN TAMBAHAN (Deep Cleaned) */}
             {(() => {
               // Bersihkan SEMUA variasi tag items (valid, rusak, terpotong)
               const cleanNotes = (viewingTransaction.notes || '')
-                .replace(/\[items:[\s\S]*?\]/g, '')      // Hapus tag valid [... ]
-                .replace(/\[items:[\s\S]*$/g, '')        // Hapus tag rusak/terpotong di akhir string
-                .replace(/\]\s*$/, '')                   // Hapus kurung siku tutup  di akhir
-                .replace(/^\]\s*/, '')                   // Hapus kurung siku buka di awal
-                .trim();
+              .replace(/\[items:[\s\S]*?\]/g, '')      // Hapus tag valid [... ]
+              .replace(/\[items:[\s\S]*$/g, '')        // Hapus tag rusak/terpotong di akhir string
+              .replace(/\[cicilan:[\s\S]*?\]/g, '')    // ✅ Hapus tag cicilan valid
+              .replace(/\[cicilan:[\s\S]*$/g, '')      // ✅ Hapus tag cicilan rusak/terpotong
+              .replace(/\]\s*$/, '')                   // Hapus kurung siku tutup  di akhir
+              .replace(/^\]\s*/, '')                   // Hapus kurung siku buka di awal
+              .trim();
               
               if (!cleanNotes) return null;
               
