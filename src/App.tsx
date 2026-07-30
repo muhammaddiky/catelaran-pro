@@ -83,7 +83,22 @@ interface RecurringTransaction {
 }
 
 type TabType = 'dashboard' | 'input' | 'history' | 'more';
-type MoreTab = 'analisis' | 'budget' | 'goals' | 'recurring' | 'settings';
+type MoreTab = 'analisis' | 'budget' | 'goals' | 'recurring' | 'installments' | 'settings';
+
+// ✅ BENTUK DATA CICILAN (disimpan di localStorage, per perangkat)
+interface Installment {
+  id: string;
+  name: string;
+  totalAmount: number;   // total yang dicicil (setelah ongkir/layanan/diskon)
+  rate: number;          // bunga %/bulan (flat)
+  tenor: number;         // jumlah bulan
+  adminFee: number;      // admin fee/bulan
+  dueDate: number;       // tanggal jatuh tempo tiap bulan
+  startDate: string;
+  paidMonths: number;    // berapa bulan sudah dibayar
+  monthlyPayment: number;
+  createdAt: string;
+}
 
 // ==================== CONSTANTS ====================
 const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']; // ✅ HARUS DI SINI
@@ -294,17 +309,25 @@ export default function CatanKeuangan() {
     const [includeTax, setIncludeTax] = useState(false);
     const [taxRate, setTaxRate] = useState<'10' | '11'>('11');
 
-    // ✅ STATE BARU: Info Cicilan (Opsi B - Kalkulator Lengkap)
-    const [showCicilanDetails, setShowCicilanDetails] = useState(false);
-    const [cicilanForm, setCicilanForm] = useState({
-      subtotal: '',       // Subtotal pesanan (harga barang)
-      shipping: '0',      // Ongkir
-      serviceFee: '0',    // Biaya layanan
-      discount: '0',      // Diskon (voucher + diskon ongkir)
-      rate: '0',          // Bunga % per bulan (flat)
-      tenor: '3',         // Jumlah bulan
-      adminFee: '0',      // Admin fee per bulan (Rp)
+   // ✅ STATE BARU: Cicilan sebagai tab mandiri di "Lainnya"
+const [showInstallmentForm, setShowInstallmentForm] = useState(false);
+const [installmentForm, setInstallmentForm] = useState({
+  name: '',
+  subtotal: '',
+  shipping: '0',
+  serviceFee: '0',
+  discount: '0',
+  rate: '0',
+  tenor: '3',
+  adminFee: '0',
+  dueDate: '25',
+  recordAsExpense: false,   // centang = buat transaksi pengeluaran riil
 });
+const [installments, setInstallments] = useState<Installment[]>([]);
+const [payingInstallmentId, setPayingInstallmentId] = useState<string | null>(null);
+const [payingAmount, setPayingAmount] = useState('');
+const [payingDate, setPayingDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+const [payingNote, setPayingNote] = useState('');
 
 
     // ========== STATE UNTUK SALDO BULANAN ==========
@@ -452,35 +475,7 @@ const itemsTotal = useMemo(() => {
   return subtotal;
 }, [transactionItems, includeTax, taxRate]);
 
-// ✅ KALKULASI CICILAN (Opsi B - Lengkap)
-const cicilanBreakdown = useMemo(() => {
-  if (!showCicilanDetails) return null;
-  const subtotal = parseInt(cicilanForm.subtotal.replace(/\D/g, '')) || 0;
-  const shipping = parseInt(cicilanForm.shipping.replace(/\D/g, '')) || 0;
-  const serviceFee = parseInt(cicilanForm.serviceFee.replace(/\D/g, '')) || 0;
-  const discount = parseInt(cicilanForm.discount.replace(/\D/g, '')) || 0;
-  const rate = parseFloat(cicilanForm.rate) || 0;
-  const tenor = parseInt(cicilanForm.tenor) || 0;
-  const adminFee = parseInt(cicilanForm.adminFee.replace(/\D/g, '')) || 0;
-  
-  // Total yang dicicil = subtotal + ongkir + biaya layanan - diskon
-  const totalCicilan = Math.max(0, subtotal + shipping + serviceFee - discount);
-  if (totalCicilan <= 0 || tenor <= 0) return null;
-  
-  // Rumus flat: cicilan/bulan = (total/tenor) + (total × rate%) + adminFee
-  const principalPerMonth = totalCicilan / tenor;
-  const interestPerMonth = totalCicilan * (rate / 100);
-  const cicilanPerMonth = Math.round(principalPerMonth + interestPerMonth + adminFee);
-  const totalBayar = cicilanPerMonth * tenor;
-  const totalBunga = totalBayar - totalCicilan;
-  
-  return {
-    subtotal, shipping, serviceFee, discount,
-    totalCicilan, rate, tenor, adminFee,
-    cicilanPerMonth, totalBayar, totalBunga,
-    interestPerMonth: Math.round(interestPerMonth),
-  };
-}, [showCicilanDetails, cicilanForm]);
+
 
 // ✅ HITUNG PAJAK SAJA (untuk display)
 const taxAmount = useMemo(() => {
@@ -561,6 +556,19 @@ useEffect(() => {
   }
 }, [itemsTotal, showItemDetails, transactionItems.length]);
 
+
+// ✅ MUAT CICILAN DARI LOCALSTORAGE (sekali saat mount)
+useEffect(() => {
+  const saved = localStorage.getItem('catelaran_installments');
+  if (saved) {
+    try { setInstallments(JSON.parse(saved)); } catch (e) { console.error('Gagal parse installments:', e); }
+  }
+}, []);
+
+// ✅ SIMPAN CICILAN KE LOCALSTORAGE tiap berubah
+useEffect(() => {
+  localStorage.setItem('catelaran_installments', JSON.stringify(installments));
+}, [installments]);
 
 // State untuk Book Manager
   const [showBookManager, setShowBookManager] = useState(false);
@@ -1128,23 +1136,7 @@ let finalNotes = serializeItemsToNotes(transactionItems, formData.notes);
 if (includeTax && transactionItems.length > 0) {
   finalNotes = (finalNotes || '') + `[tax:${taxRate}%]`.trim();
 }
-// ✅ Tambah info cicilan jika panel aktif & data valid
-if (showCicilanDetails) {
-  const subtotal = parseInt(cicilanForm.subtotal.replace(/\D/g, '')) || 0;
-  const shipping = parseInt(cicilanForm.shipping.replace(/\D/g, '')) || 0;
-  const serviceFee = parseInt(cicilanForm.serviceFee.replace(/\D/g, '')) || 0;
-  const discount = parseInt(cicilanForm.discount.replace(/\D/g, '')) || 0;
-  const rate = parseFloat(cicilanForm.rate) || 0;
-  const tenor = parseInt(cicilanForm.tenor) || 0;
-  const adminFee = parseInt(cicilanForm.adminFee.replace(/\D/g, '')) || 0;
-  const totalCicilan = Math.max(0, subtotal + shipping + serviceFee - discount);
-  if (totalCicilan > 0 && tenor > 0) {
-    finalNotes = serializeCicilanToNotes(
-      { itemPrice: totalCicilan, rate, tenor, adminFee },
-      finalNotes
-    );
-  }
-}
+
 
 // ✅ Pastikan format tanggal YYYY-MM-DD tanpa timezone
 const payload = {
@@ -1173,8 +1165,6 @@ const payload = {
     setIncludeTax(false);
     setTaxRate('11');
     setActiveTab('history');
-    setShowCicilanDetails(false);
-    setCicilanForm({ itemPrice: '', rate: '0', tenor: '3', adminFee: '0' });
 };
 
  // ✅ FUNGSI UTAMA: Hapus dengan Konfirmasi & Fitur Urungkan
@@ -1309,24 +1299,7 @@ const handleUndoDelete = async (toastId: string, tx: Transaction) => {
     setTaxRate('11');
   }
 
-  // ✅ LOAD INFO CICILAN DARI NOTES (jika ada)
-const cicilanData = parseCicilanFromNotes(t.notes);
-if (cicilanData) {
-  setShowCicilanDetails(true);
-  // Restore sebagai subtotal (asumsi ongkir/serviceFee/discount = 0 jika tidak ada data)
-  setCicilanForm({
-    subtotal: cicilanData.itemPrice.toString(),
-    shipping: '0',
-    serviceFee: '0',
-    discount: '0',
-    rate: cicilanData.rate.toString(),
-    tenor: cicilanData.tenor.toString(),
-    adminFee: cicilanData.adminFee.toString(),
-  });
-} else {
-  setShowCicilanDetails(false);
-  setCicilanForm({ subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0' });
-}
+
   
   setEditingId(t.id);
   setActiveTab('input');
@@ -1742,7 +1715,108 @@ const handleUpdateRecurring = async () => {
   }
 };
 
- const handleExport = () => {
+// ✅ KALKULATOR CICILAN (dipakai form + handler)
+const calculateInstallmentBreakdown = (form: typeof installmentForm) => {
+  const subtotal = parseInt(form.subtotal.replace(/\D/g, '')) || 0;
+  const shipping = parseInt(form.shipping.replace(/\D/g, '')) || 0;
+  const serviceFee = parseInt(form.serviceFee.replace(/\D/g, '')) || 0;
+  const discount = parseInt(form.discount.replace(/\D/g, '')) || 0;
+  const rate = parseFloat(form.rate) || 0;
+  const tenor = parseInt(form.tenor) || 0;
+  const adminFee = parseInt(form.adminFee.replace(/\D/g, '')) || 0;
+  const totalAmount = Math.max(0, subtotal + shipping + serviceFee - discount);
+  if (totalAmount <= 0 || tenor <= 0) return null;
+  const principalPerMonth = totalAmount / tenor;
+  const interestPerMonth = totalAmount * (rate / 100);
+  const monthlyPayment = Math.round(principalPerMonth + interestPerMonth + adminFee);
+  const totalPayment = monthlyPayment * tenor;
+  const totalInterest = totalPayment - totalAmount;
+  return { totalAmount, rate, tenor, adminFee, monthlyPayment, totalPayment, totalInterest };
+};
+
+// ✅ SIMPAN CICILAN BARU (opsional: sekalian catat pengeluaran bulan ini)
+const handleAddInstallment = async () => {
+  if (!installmentForm.name.trim() || !installmentForm.subtotal) {
+    notify.error('Nama & subtotal wajib diisi'); return;
+  }
+  const b = calculateInstallmentBreakdown(installmentForm);
+  if (!b) { notify.error('Data cicilan tidak valid'); return; }
+
+  const newInst: Installment = {
+    id: Date.now().toString(),
+    name: installmentForm.name.trim(),
+    totalAmount: b.totalAmount,
+    rate: b.rate,
+    tenor: b.tenor,
+    adminFee: b.adminFee,
+    dueDate: parseInt(installmentForm.dueDate) || 25,
+    startDate: format(new Date(), 'yyyy-MM-dd'),
+    paidMonths: 0,
+    monthlyPayment: b.monthlyPayment,
+    createdAt: new Date().toISOString(),
+  };
+
+  // Jika dicentang → buat transaksi pengeluaran riil bulan ini
+  if (installmentForm.recordAsExpense) {
+    await addTransaction({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      type: 'expense',
+      category: 'cicilan',
+      description: `Cicilan: ${newInst.name} (1/${newInst.tenor})`,
+      amount: b.monthlyPayment,
+      notes: `[cicilan_pay:${newInst.id}]`,
+      payment_method: 'transfer',
+    });
+    newInst.paidMonths = 1;
+    notify.success('Cicilan disimpan & pengeluaran bulan ini tercatat ☁️');
+  } else {
+    notify.success('Jadwal cicilan disimpan sebagai pengingat 🔔');
+  }
+
+  setInstallments(prev => [...prev, newInst]);
+  setInstallmentForm({
+    name: '', subtotal: '', shipping: '0', serviceFee: '0', discount: '0',
+    rate: '0', tenor: '3', adminFee: '0', dueDate: '25', recordAsExpense: false,
+  });
+  setShowInstallmentForm(false);
+};
+
+// ✅ BAYAR CICILAN BULAN INI (dari modal)
+const handlePayInstallment = async () => {
+  if (!payingInstallmentId) return;
+  const inst = installments.find(i => i.id === payingInstallmentId);
+  if (!inst) return;
+  const amount = parseNominal(payingAmount);
+  if (amount <= 0) { notify.error('Nominal tidak valid'); return; }
+
+  await addTransaction({
+    date: payingDate,
+    type: 'expense',
+    category: 'cicilan',
+    description: `Cicilan: ${inst.name} (${inst.paidMonths + 1}/${inst.tenor})${payingNote ? ` - ${payingNote}` : ''}`,
+    amount,
+    notes: `[cicilan_pay:${inst.id}]`,
+    payment_method: 'transfer',
+  });
+  setInstallments(prev => prev.map(i =>
+    i.id === payingInstallmentId ? { ...i, paidMonths: Math.min(i.paidMonths + 1, i.tenor) } : i
+  ));
+  notify.success(`Pembayaran cicilan ke-${inst.paidMonths + 1} tercatat ☁️`);
+  setPayingInstallmentId(null);
+  setPayingAmount('');
+  setPayingDate(format(new Date(), 'yyyy-MM-dd'));
+  setPayingNote('');
+};
+
+// ✅ HAPUS JADWAL CICILAN (transaksi yang sudah tercatat TIDAK ikut terhapus)
+const handleDeleteInstallment = (id: string) => {
+  if (!window.confirm('Hapus jadwal cicilan ini?\n\nTransaksi pengeluaran yang sudah tercatat TIDAK akan ikut terhapus.')) return;
+  setInstallments(prev => prev.filter(i => i.id !== id));
+  notify.success('Jadwal cicilan dihapus 🗑️');
+};
+
+ 
+const handleExport = () => {
   const data = { 
     books,                                    // ✅ DAFTAR BUKU
     transactions, 
@@ -2895,197 +2969,7 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
   </div>
 )}
 
-                  {/* ✅ PANEL INFO CICILAN (OPSI B - KALKULATOR LENGKAP ala Shopee) */}
-            {/* ⚠️ HANYA MUNCUL DI PENGELUARAN (bukan pemasukan) */}
-            {formData.type === 'expense' && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCicilanDetails(!showCicilanDetails);
-                    // Auto-fill subtotal dari amount jika panel baru dibuka
-                    if (!showCicilanDetails && formData.amount && !cicilanForm.subtotal) {
-                      setCicilanForm(prev => ({ ...prev, subtotal: formData.amount }));
-                    }
-                  }}
-                  className="mt-2 text-xs font-semibold text-purple-500 hover:text-purple-600 flex items-center gap-1"
-                >
-                  {showCicilanDetails ? '▼ Sembunyikan Info Cicilan' : '+ Tambahkan Info Cicilan'}
-                </button>
-
-                {showCicilanDetails && (
-                  <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3 space-y-3 border border-purple-200 dark:border-purple-800">
-                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                      💳 Kalkulator Cicilan (Flat)
-                    </p>
-
-                    {/* Subtotal Pesanan */}
-                    <div>
-                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                        Subtotal Pesanan (Harga Barang)
-                      </label>
-                      <input
-                        type="text"
-                        value={formatNominalDisplay(cicilanForm.subtotal)}
-                        onChange={(e) => setCicilanForm({ ...cicilanForm, subtotal: parseNominal(e.target.value).toString() })}
-                        placeholder="Rp 0"
-                        inputMode="numeric"
-                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                      />
-                    </div>
-
-                    {/* Ongkir + Biaya Layanan (side by side) */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                          Ongkir
-                        </label>
-                        <input
-                          type="text"
-                          value={formatNominalDisplay(cicilanForm.shipping)}
-                          onChange={(e) => setCicilanForm({ ...cicilanForm, shipping: parseNominal(e.target.value).toString() })}
-                          placeholder="Rp 0"
-                          inputMode="numeric"
-                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                          Biaya Layanan
-                        </label>
-                        <input
-                          type="text"
-                          value={formatNominalDisplay(cicilanForm.serviceFee)}
-                          onChange={(e) => setCicilanForm({ ...cicilanForm, serviceFee: parseNominal(e.target.value).toString() })}
-                          placeholder="Rp 0"
-                          inputMode="numeric"
-                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Diskon */}
-                    <div>
-                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                        Diskon (Voucher + Diskon Ongkir)
-                      </label>
-                      <input
-                        type="text"
-                        value={formatNominalDisplay(cicilanForm.discount)}
-                        onChange={(e) => setCicilanForm({ ...cicilanForm, discount: parseNominal(e.target.value).toString() })}
-                        placeholder="Rp 0"
-                        inputMode="numeric"
-                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                      />
-                    </div>
-
-                    {/* Total yang Dicicil (auto-calculate) */}
-                    {cicilanBreakdown && (
-                      <div className="bg-purple-100 dark:bg-purple-900/40 rounded-lg px-3 py-2 border-2 border-purple-300 dark:border-purple-700">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                            Total yang Dicicil:
-                          </span>
-                          <span className="text-sm font-extrabold text-purple-700 dark:text-purple-300 tabular-nums">
-                            {formatCurrency(cicilanBreakdown.totalCicilan)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Rate + Tenor (side by side) */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                          Bunga (%/bulan)
-                        </label>
-                        <input
-                          type="number"
-                          value={cicilanForm.rate}
-                          onChange={(e) => setCicilanForm({ ...cicilanForm, rate: e.target.value })}
-                          placeholder="0"
-                          step="0.01"
-                          min="0"
-                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                          Tenor (bulan)
-                        </label>
-                        <input
-                          type="number"
-                          value={cicilanForm.tenor}
-                          onChange={(e) => setCicilanForm({ ...cicilanForm, tenor: e.target.value })}
-                          placeholder="3"
-                          min="1"
-                          className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Admin Fee */}
-                    <div>
-                      <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">
-                        Admin Fee / bulan
-                      </label>
-                      <input
-                        type="text"
-                        value={formatNominalDisplay(cicilanForm.adminFee)}
-                        onChange={(e) => setCicilanForm({ ...cicilanForm, adminFee: parseNominal(e.target.value).toString() })}
-                        placeholder="Rp 0"
-                        inputMode="numeric"
-                        className="w-full bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-200 dark:border-purple-700"
-                      />
-                    </div>
-
-                    {/* Hasil Kalkulasi */}
-                    {cicilanBreakdown && (
-                      <div className="bg-white dark:bg-slate-800 rounded-lg p-3 space-y-2 border border-purple-300 dark:border-purple-700">
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] text-slate-600 dark:text-slate-400">Cicilan/bulan:</span>
-                          <span className="text-sm font-extrabold text-purple-600 dark:text-purple-400">
-                            {formatCurrency(cicilanBreakdown.cicilanPerMonth)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-[11px] text-slate-600 dark:text-slate-400">Total bayar:</span>
-                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                            {formatCurrency(cicilanBreakdown.totalBayar)}
-                          </span>
-                        </div>
-                        {cicilanBreakdown.totalBunga > 0 && (
-                          <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-slate-700">
-                            <span className="text-[11px] text-slate-600 dark:text-slate-400">Total bunga:</span>
-                            <span className="text-xs font-bold text-red-600 dark:text-red-400">
-                              +{formatCurrency(cicilanBreakdown.totalBunga)} ⚠️
-                            </span>
-                          </div>
-                        )}
-                        {cicilanBreakdown.rate === 0 && cicilanBreakdown.adminFee === 0 && (
-                          <div className="text-center pt-1">
-                            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full">
-                              ✨ Cicilan 0% — Tidak ada bunga!
-                            </span>
-                          </div>
-                        )}
-                        {/* Tombol pakai hasil kalkulasi sebagai amount */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFormData(prev => ({ ...prev, amount: cicilanBreakdown.cicilanPerMonth.toString() }));
-                            toast.success(`Nominal di-set ke cicilan/bulan: ${formatCurrency(cicilanBreakdown.cicilanPerMonth)}`);
-                          }}
-                          className="w-full mt-1 py-2 text-xs font-bold text-white bg-purple-500 hover:bg-purple-600 rounded-lg active:scale-95 transition-all"
-                        >
-                          💾 Pakai Cicilan/Bulan sebagai Nominal Transaksi
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}                  
+                  
 
                   <div>
                     <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan</label>
@@ -3517,14 +3401,15 @@ if (user && (authLoading || dataLoading || !isReady || !activeBook)) {
           {activeTab === 'more' && (
             <div className="space-y-4">
               <div className="bg-white dark:bg-slate-800 p-1 rounded-2xl shadow-md">
-                <div className="grid grid-cols-5 gap-0.5">
-                  {[
-                    { id: 'analisis' as MoreTab, label: '📊', name: 'Analisis' },
-                    { id: 'budget' as MoreTab, label: '💰', name: 'Budget' },
-                    { id: 'goals' as MoreTab, label: '🎯', name: 'Goals' },
-                    { id: 'recurring' as MoreTab, label: '🔄', name: 'Auto' },
-                    { id: 'settings' as MoreTab, label: '⚙️', name: 'Set' },
-                  ].map(tab => (
+                <div className="grid grid-cols-6 gap-0.5">
+              {[
+                { id: 'analisis' as MoreTab, label: '📊', name: 'Analisis' },
+                { id: 'budget' as MoreTab, label: '💰', name: 'Budget' },
+                { id: 'goals' as MoreTab, label: '🎯', name: 'Goals' },
+                { id: 'recurring' as MoreTab, label: '🔄', name: 'Auto' },
+                { id: 'installments' as MoreTab, label: '💳', name: 'Cicilan' },
+                { id: 'settings' as MoreTab, label: '⚙️', name: 'Set' },
+              ].map(tab => (
                     <button key={tab.id} onClick={() => setActiveMoreTab(tab.id)}
                       className={`flex flex-col items-center py-2 rounded-xl text-[10px] font-semibold transition-all active:scale-95 ${activeMoreTab === tab.id ? 'bg-blue-500 text-white shadow-md' : 'text-slate-600 dark:text-slate-400'}`}>
                       <span className="text-base mb-0.5">{tab.label}</span>
@@ -4638,6 +4523,266 @@ const isDayActive = (day: number) => {
              </div>
           )}
 
+                        {/* ✅ CICILAN (tab mandiri) */}
+          {activeMoreTab === 'installments' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">💳 Cicilan</h2>
+                <button onClick={() => setShowInstallmentForm(true)}
+                  className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 flex items-center gap-1 shadow-md shadow-blue-500/30">
+                  <Plus className="w-3.5 h-3.5" /> Baru
+                </button>
+              </div>
+
+              {/* FORM TAMBAH CICILAN */}
+              {showInstallmentForm && (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md space-y-3 border border-slate-200 dark:border-slate-700">
+                  <input type="text" value={installmentForm.name}
+                    onChange={e => setInstallmentForm({ ...installmentForm, name: e.target.value })}
+                    placeholder="Nama cicilan (mis. Bor Impact, Laptop, KPR)"
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1 text-purple-700 dark:text-purple-300">Subtotal Pesanan (harga barang)</label>
+                    <input type="text" value={formatNominalDisplay(installmentForm.subtotal)}
+                      onChange={e => setInstallmentForm({ ...installmentForm, subtotal: parseNominal(e.target.value).toString() })}
+                      placeholder="Rp 0" inputMode="numeric"
+                      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Ongkir</label>
+                      <input type="text" value={formatNominalDisplay(installmentForm.shipping)}
+                        onChange={e => setInstallmentForm({ ...installmentForm, shipping: parseNominal(e.target.value).toString() })}
+                        placeholder="Rp 0" inputMode="numeric"
+                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Biaya Layanan</label>
+                      <input type="text" value={formatNominalDisplay(installmentForm.serviceFee)}
+                        onChange={e => setInstallmentForm({ ...installmentForm, serviceFee: parseNominal(e.target.value).toString() })}
+                        placeholder="Rp 0" inputMode="numeric"
+                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Diskon (voucher + diskon ongkir)</label>
+                    <input type="text" value={formatNominalDisplay(installmentForm.discount)}
+                      onChange={e => setInstallmentForm({ ...installmentForm, discount: parseNominal(e.target.value).toString() })}
+                      placeholder="Rp 0" inputMode="numeric"
+                      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                  </div>
+
+                  {(() => {
+                    const b = calculateInstallmentBreakdown(installmentForm);
+                    if (!b) return null;
+                    return (
+                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg px-3 py-2 border border-purple-200 dark:border-purple-800">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300">Total yang dicicil</span>
+                          <span className="text-sm font-extrabold text-purple-700 dark:text-purple-300 tabular-nums">{formatCurrency(b.totalAmount)}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Bunga %/bln</label>
+                      <input type="number" value={installmentForm.rate}
+                        onChange={e => setInstallmentForm({ ...installmentForm, rate: e.target.value })}
+                        placeholder="0" step="0.01" min="0"
+                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Tenor (bln)</label>
+                      <input type="number" value={installmentForm.tenor}
+                        onChange={e => setInstallmentForm({ ...installmentForm, tenor: e.target.value })}
+                        placeholder="3" min="1"
+                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Jatuh tempo</label>
+                      <input type="number" value={installmentForm.dueDate}
+                        onChange={e => setInstallmentForm({ ...installmentForm, dueDate: e.target.value })}
+                        placeholder="25" min="1" max="31"
+                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Admin Fee / bln</label>
+                    <input type="text" value={formatNominalDisplay(installmentForm.adminFee)}
+                      onChange={e => setInstallmentForm({ ...installmentForm, adminFee: parseNominal(e.target.value).toString() })}
+                      placeholder="Rp 0" inputMode="numeric"
+                      className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
+                  </div>
+
+                  {/* HASIL KALKULASI */}
+                  {(() => {
+                    const b = calculateInstallmentBreakdown(installmentForm);
+                    if (!b) return null;
+                    return (
+                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3 space-y-1.5 border border-slate-200 dark:border-slate-600">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-600 dark:text-slate-400">Cicilan / bulan</span>
+                          <span className="font-extrabold text-purple-600 dark:text-purple-400 tabular-nums">{formatCurrency(b.monthlyPayment)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-600 dark:text-slate-400">Total bayar ({b.tenor}×)</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300 tabular-nums">{formatCurrency(b.totalPayment)}</span>
+                        </div>
+                        {b.totalInterest > 0 ? (
+                          <div className="flex justify-between text-xs pt-1 border-t border-slate-200 dark:border-slate-600">
+                            <span className="text-slate-600 dark:text-slate-400">Total bunga</span>
+                            <span className="font-bold text-red-600 dark:text-red-400 tabular-nums">+{formatCurrency(b.totalInterest)} ⚠️</span>
+                          </div>
+                        ) : (
+                          <div className="text-center pt-1">
+                            <span className="text-[10px] font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full">✨ Cicilan 0% — tanpa bunga</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ✅ CHECKBOX OPSIONAL — pola sama seperti Goals */}
+                  <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-xl cursor-pointer active:scale-[0.98] transition-transform border border-transparent hover:border-blue-300 dark:hover:border-blue-600">
+                    <input type="checkbox" checked={installmentForm.recordAsExpense}
+                      onChange={e => setInstallmentForm({ ...installmentForm, recordAsExpense: e.target.checked })}
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-500 focus:ring-blue-500" />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">💰 Catat sebagai pengeluaran bulan ini</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug mt-0.5">
+                        Centang jika pembayaran cicilan bulan ini benar‑benar keluar dari rekening utama (misal: auto‑debet / transfer). Jangan centang jika hanya ingin menyimpan jadwal cicilan sebagai pengingat tanpa memengaruhi saldo.
+                      </p>
+                    </div>
+                  </label>
+
+                  <div className="flex gap-2">
+                    <button onClick={handleAddInstallment} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">Simpan</button>
+                    <button onClick={() => setShowInstallmentForm(false)} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
+                  </div>
+                </div>
+              )}
+
+              {/* DAFTAR CICILAN */}
+              {installments.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center border border-dashed border-slate-300 dark:border-slate-700">
+                  <div className="text-4xl mb-2">💳</div>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm">Belum ada cicilan. Tekan <b>Baru</b> untuk menambah.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {installments.map(i => {
+                    const remaining = Math.max(i.tenor - i.paidMonths, 0);
+                    const pct = (i.paidMonths / i.tenor) * 100;
+                    const lunas = remaining === 0;
+                    return (
+                      <div key={i.id} className={`bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-md border border-slate-200 dark:border-slate-700 transition-all ${lunas ? 'opacity-60' : ''}`}>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-3xl">💳</span>
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">{i.name}</h3>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {formatCurrency(i.monthlyPayment)}/bln • jatuh tempo tgl {i.dueDate}
+                                {i.rate > 0 ? ` • bunga ${i.rate}%` : ' • 0%'}
+                              </p>
+                            </div>
+                          </div>
+                          <button onClick={() => handleDeleteInstallment(i.id)}
+                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90 shrink-0">
+                            <Trash2 className="w-4 h-4 text-red-500" />
+                          </button>
+                        </div>
+
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
+                          <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full flex items-center justify-end pr-2 transition-all duration-500"
+                            style={{ width: `${Math.min(pct, 100)}%` }}>
+                            {pct > 15 && <span className="text-white text-[10px] font-bold">{pct.toFixed(0)}%</span>}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[11px] mb-3">
+                          <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
+                            <p className="text-slate-500 dark:text-slate-400">Terbayar</p>
+                            <p className="font-bold text-slate-900 dark:text-white">{i.paidMonths}/{i.tenor} bulan</p>
+                          </div>
+                          <div className="bg-slate-100 dark:bg-slate-700 rounded-lg p-2">
+                            <p className="text-slate-500 dark:text-slate-400">Sisa</p>
+                            <p className="font-bold text-slate-900 dark:text-white">{remaining} bulan</p>
+                          </div>
+                        </div>
+
+                        {!lunas ? (
+                          <button onClick={() => { setPayingInstallmentId(i.id); setPayingAmount(i.monthlyPayment.toString()); }}
+                            className="w-full bg-blue-500 text-white py-2.5 rounded-xl text-xs font-semibold active:scale-95 transition-transform shadow-md shadow-blue-500/20">
+                            💰 Bayar cicilan ke‑{i.paidMonths + 1}
+                          </button>
+                        ) : (
+                          <div className="text-center py-2 bg-green-50 dark:bg-green-900/20 rounded-xl">
+                            <p className="text-xs font-bold text-green-600 dark:text-green-400">✅ Lunas</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ✅ MODAL BAYAR CICILAN */}
+          {payingInstallmentId && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm"
+              onClick={() => setPayingInstallmentId(null)}>
+              <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 border-t sm:border border-slate-200 dark:border-slate-700"
+                onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-900 dark:text-white">💰 Bayar Cicilan</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {installments.find(i => i.id === payingInstallmentId)?.name}
+                    </p>
+                  </div>
+                  <button onClick={() => setPayingInstallmentId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full">
+                    <X className="w-5 h-5 text-slate-500" />
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
+                  <input type="text" value={formatNominalDisplay(payingAmount)}
+                    onChange={(e) => setPayingAmount(parseNominal(e.target.value).toString())}
+                    placeholder="Rp 0" inputMode="numeric" autoFocus
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal bayar</label>
+                  <input type="date" value={payingDate} onChange={(e) => setPayingDate(e.target.value)}
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">
+                    Catatan <span className="text-slate-400 font-normal">(opsional, mis. "top‑up ShopeePay dari istri")</span>
+                  </label>
+                  <input type="text" value={payingNote} onChange={(e) => setPayingNote(e.target.value)}
+                    placeholder="Opsional"
+                    className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+                </div>
+
+                <button onClick={handlePayInstallment}
+                  className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20">
+                  ✅ Catat Pembayaran
+                </button>
+              </div>
+            </div>
+          )}
+
+              
               {/* SETTINGS */}
               {activeMoreTab === 'settings' && (
                 <div className="space-y-3">
