@@ -100,6 +100,16 @@ interface Installment {
   createdAt: string;
 }
 
+// ✅ RIWAYAT PEMBAYARAN PER CICILAN (log: tanggal, nominal, bulan ke-, catatan)
+interface InstallmentPayment {
+id: string;
+date: string;
+amount: number;
+monthIndex: number;
+note?: string;
+createdAt: string;
+}
+
 // ==================== CONSTANTS ====================
 const PIE_COLORS = ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']; // ✅ HARUS DI SINI
 
@@ -645,6 +655,11 @@ const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
     nextDate: format(new Date(), 'yyyy-MM-dd'), reminderDays: 3,
   });
   const [showRecurringForm, setShowRecurringForm] = useState(false);
+
+  // ✅ STATE: mode edit cicilan + modal riwayat pembayaran
+const [editingInstallmentId, setEditingInstallmentId] = useState<string | null>(null);
+const [historyInstallmentId, setHistoryInstallmentId] = useState<string | null>(null);
+
 
   // ✅ REF UNTUK DROPDOWN KATEGORI
 const categoryDropdownRef = useRef<HTMLDivElement>(null);
@@ -1715,6 +1730,8 @@ const handleUpdateRecurring = async () => {
   }
 };
 
+
+
 // ✅ KALKULATOR CICILAN (dipakai form + handler)
 const calculateInstallmentBreakdown = (form: typeof installmentForm) => {
   const subtotal = parseInt(form.subtotal.replace(/\D/g, '')) || 0;
@@ -1733,6 +1750,8 @@ const calculateInstallmentBreakdown = (form: typeof installmentForm) => {
   const totalInterest = totalPayment - totalAmount;
   return { totalAmount, rate, tenor, adminFee, monthlyPayment, totalPayment, totalInterest };
 };
+
+
 
 // ✅ SIMPAN CICILAN BARU (opsional: sekalian catat pengeluaran bulan ini)
 const handleAddInstallment = async () => {
@@ -1815,6 +1834,8 @@ const handleDeleteInstallment = (id: string) => {
   notify.success('Jadwal cicilan dihapus 🗑️');
 };
 
+
+
  
 const handleExport = () => {
   const data = { 
@@ -1842,6 +1863,90 @@ const handleExport = () => {
     notify.error('Pilih buku terlebih dahulu!');
     return;
   }
+
+  // ✅ HANDLER: Tambah Cicilan
+const handleAddInstallment = async () => {
+  if (!installmentForm.name.trim() || !installmentForm.subtotal) { notify.error('Nama & subtotal wajib diisi'); return; }
+  const breakdown = calculateInstallmentBreakdown(installmentForm);
+  if (!breakdown) { notify.error('Data tidak valid'); return; }
+  const nowIso = new Date().toISOString();
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  // Jika dicentang → pembayaran bulan 1 langsung masuk log
+  const firstPayment: InstallmentPayment | null = installmentForm.recordAsExpense
+    ? { id: Date.now().toString(), date: todayStr, amount: breakdown.monthlyPayment, monthIndex: 1, note: undefined, createdAt: nowIso }
+    : null;
+  const newInstallment: Installment = {
+    id: Date.now().toString(),
+    name: installmentForm.name.trim(),
+    totalAmount: breakdown.totalAmount,
+    rate: breakdown.rate, tenor: breakdown.tenor, adminFee: breakdown.adminFee,
+    dueDate: parseInt(installmentForm.dueDate) || 25,
+    startDate: todayStr,
+    paidMonths: firstPayment ? 1 : 0,
+    monthlyPayment: breakdown.monthlyPayment,
+    createdAt: nowIso,
+    payments: firstPayment ? [firstPayment] : [],
+  };
+  setInstallments(prev => [...prev, newInstallment]);
+  if (installmentForm.recordAsExpense) {
+    await addTransaction({ date: todayStr, type: 'expense', category: 'cicilan', description: `Cicilan: ${newInstallment.name} (1/${newInstallment.tenor})`, amount: breakdown.monthlyPayment, notes: `[cicilan_pay:${newInstallment.id}]`, payment_method: 'transfer' });
+    notify.success('Cicilan disimpan & pembayaran bulan 1 tercatat ☁️');
+  } else {
+    notify.success('Jadwal cicilan disimpan 🔔');
+  }
+  setInstallmentForm({ name: '', subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0', dueDate: '25', recordAsExpense: false });
+  setEditingInstallmentId(null);
+  setShowInstallmentForm(false);
+};
+
+// ✅ HANDLER: Bayar Cicilan (mencatat ke Riwayat + ke log payments)
+const handlePayInstallment = async () => {
+  if (!payingInstallmentId || !payingAmount) { notify.error('Nominal wajib diisi'); return; }
+  const installment = installments.find(i => i.id === payingInstallmentId);
+  if (!installment) return;
+  const amount = parseNominal(payingAmount);
+  if (amount <= 0) { notify.error('Nominal tidak valid'); return; }
+  const nextMonth = installment.paidMonths + 1;
+  const payment: InstallmentPayment = { id: Date.now().toString(), date: payingDate, amount, monthIndex: nextMonth, note: payingNote.trim() || undefined, createdAt: new Date().toISOString() };
+  await addTransaction({ date: payingDate, type: 'expense', category: 'cicilan', description: `Cicilan: ${installment.name} (${nextMonth}/${installment.tenor})${payingNote ? ` - ${payingNote}` : ''}`, amount, notes: `[cicilan_pay:${installment.id}]`, payment_method: 'transfer' });
+  setInstallments(prev => prev.map(i => i.id === payingInstallmentId ? { ...i, paidMonths: Math.min(i.paidMonths + 1, i.tenor), payments: [...(i.payments || []), payment] } : i));
+  notify.success(`Pembayaran bulan ${nextMonth} tercatat ☁️`);
+  setPayingInstallmentId(null); setPayingAmount(''); setPayingDate(format(new Date(), 'yyyy-MM-dd')); setPayingNote('');
+};
+
+// ✅ HANDLER: Hapus Cicilan
+const handleDeleteInstallment = async (id: string) => {
+  if (!window.confirm('Hapus jadwal cicilan ini?\n\nRiwayat pembayaran & transaksi yang sudah tercatat TIDAK akan terhapus.')) return;
+  setInstallments(prev => prev.filter(i => i.id !== id));
+  notify.success('Jadwal cicilan dihapus 🗑️');
+};
+
+// ✅ HANDLER: Update Cicilan (mode edit inline)
+const handleUpdateInstallment = async () => {
+  if (!editingInstallmentId) return;
+  if (!installmentForm.name.trim() || !installmentForm.subtotal) { notify.error('Nama & subtotal wajib diisi'); return; }
+  const breakdown = calculateInstallmentBreakdown(installmentForm);
+  if (!breakdown) { notify.error('Data tidak valid'); return; }
+  setInstallments(prev => prev.map(i => {
+    if (i.id !== editingInstallmentId) return i;
+    // Jaga progress & riwayat tetap utuh; clamp paidMonths kalau tenor diperpendek
+    const clampedPaid = Math.min(i.paidMonths, breakdown.tenor);
+    return { ...i, name: installmentForm.name.trim(), totalAmount: breakdown.totalAmount, rate: breakdown.rate, tenor: breakdown.tenor, adminFee: breakdown.adminFee, dueDate: parseInt(installmentForm.dueDate) || 25, monthlyPayment: breakdown.monthlyPayment, paidMonths: clampedPaid };
+  }));
+  notify.success('Cicilan diperbarui ✏️');
+  setInstallmentForm({ name: '', subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0', dueDate: '25', recordAsExpense: false });
+  setEditingInstallmentId(null);
+  setShowInstallmentForm(false);
+};
+
+// ✅ HANDLER: Buka mode edit (isi form dari data cicilan)
+const handleEditInstallment = (i: Installment) => {
+  setEditingInstallmentId(i.id);
+  // totalAmount disimpan sebagai subtotal (komponen ongkir/diskon tidak disimpan terpisah)
+  setInstallmentForm({ name: i.name, subtotal: i.totalAmount.toString(), shipping: '0', serviceFee: '0', discount: '0', rate: i.rate.toString(), tenor: i.tenor.toString(), adminFee: i.adminFee.toString(), dueDate: i.dueDate.toString(), recordAsExpense: false });
+  setShowInstallmentForm(true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
   
   // ✅ VALIDASI: Cek apakah buku ini milik user di mode keluarga
   if (isFamilyMode) {
@@ -4528,7 +4633,7 @@ const isDayActive = (day: number) => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">💳 Cicilan</h2>
-                <button onClick={() => setShowInstallmentForm(true)}
+                <button onClick={() => { setEditingInstallmentId(null); setInstallmentForm({ name: '', subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0', dueDate: '25', recordAsExpense: false }); setShowInstallmentForm(true); }}
                   className="bg-blue-500 text-white px-3 py-2 rounded-xl text-xs font-semibold active:scale-95 flex items-center gap-1 shadow-md shadow-blue-500/30">
                   <Plus className="w-3.5 h-3.5" /> Baru
                 </button>
@@ -4781,6 +4886,7 @@ const isDayActive = (day: number) => {
               </div>
             </div>
           )}
+
 
               
               {/* SETTINGS */}
