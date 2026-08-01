@@ -1834,7 +1834,56 @@ const handleDeleteInstallment = (id: string) => {
   notify.success('Jadwal cicilan dihapus 🗑️');
 };
 
+// ✅ BUKA MODE EDIT: isi form dari data cicilan yang dipilih
+const handleEditInstallment = (i: Installment) => {
+  setEditingInstallmentId(i.id);
+  // totalAmount disimpan sebagai subtotal (komponen ongkir/diskon tidak disimpan terpisah)
+  setInstallmentForm({
+    name: i.name,
+    subtotal: i.totalAmount.toString(),
+    shipping: '0',
+    serviceFee: '0',
+    discount: '0',
+    rate: i.rate.toString(),
+    tenor: i.tenor.toString(),
+    adminFee: i.adminFee.toString(),
+    dueDate: i.dueDate.toString(),
+    recordAsExpense: false,
+  });
+  setShowInstallmentForm(true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
+// ✅ SIMPAN PERUBAHAN EDIT (menimpa cicilan yang sedang diedit)
+const handleUpdateInstallment = async () => {
+  if (!editingInstallmentId) return;
+  if (!installmentForm.name.trim() || !installmentForm.subtotal) {
+    notify.error('Nama & subtotal wajib diisi');
+    return;
+  }
+  const breakdown = calculateInstallmentBreakdown(installmentForm);
+  if (!breakdown) { notify.error('Data tidak valid'); return; }
+  setInstallments(prev => prev.map(i => {
+    if (i.id !== editingInstallmentId) return i;
+    // jaga progress & riwayat tetap utuh; clamp paidMonths kalau tenor diperpendek
+    const clampedPaid = Math.min(i.paidMonths, breakdown.tenor);
+    return {
+      ...i,
+      name: installmentForm.name.trim(),
+      totalAmount: breakdown.totalAmount,
+      rate: breakdown.rate,
+      tenor: breakdown.tenor,
+      adminFee: breakdown.adminFee,
+      dueDate: parseInt(installmentForm.dueDate) || 25,
+      monthlyPayment: breakdown.monthlyPayment,
+      paidMonths: clampedPaid,
+    };
+  }));
+  notify.success('Cicilan diperbarui ✏️');
+  setInstallmentForm({ name: '', subtotal: '', shipping: '0', serviceFee: '0', discount: '0', rate: '0', tenor: '3', adminFee: '0', dueDate: '25', recordAsExpense: false });
+  setEditingInstallmentId(null);
+  setShowInstallmentForm(false);
+};
 
  
 const handleExport = () => {
@@ -1920,6 +1969,8 @@ const handleDeleteInstallment = async (id: string) => {
   setInstallments(prev => prev.filter(i => i.id !== id));
   notify.success('Jadwal cicilan dihapus 🗑️');
 };
+
+
 
 // ✅ HANDLER: Update Cicilan (mode edit inline)
 const handleUpdateInstallment = async () => {
@@ -4702,13 +4753,58 @@ const isDayActive = (day: number) => {
                         className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Tenor (bln)</label>
-                      <input type="number" value={installmentForm.tenor}
-                        onChange={e => setInstallmentForm({ ...installmentForm, tenor: e.target.value })}
-                        placeholder="3" min="1"
-                        className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white" />
-                    </div>
-                    <div>
+                    <label className="block text-[10px] font-semibold mb-1.5 text-slate-600 dark:text-slate-400">Tenor (bulan)</label>
+                    {(() => {
+                      const TENOR_OPTIONS = [3, 6, 9, 12, 18, 24];
+                      const isCustom = !TENOR_OPTIONS.map(String).includes(installmentForm.tenor);
+                      return (
+                        <>
+                          <div className="flex flex-wrap gap-1.5">
+                            {TENOR_OPTIONS.map(n => {
+                              const active = installmentForm.tenor === String(n);
+                              return (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  onClick={() => setInstallmentForm({ ...installmentForm, tenor: String(n) })}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 active:scale-90 ${
+                                    active
+                                      ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30 scale-105'
+                                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 hover:-translate-y-0.5'
+                                  }`}
+                                >
+                                  {n} bln
+                                </button>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              onClick={() => setInstallmentForm({ ...installmentForm, tenor: '' })}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 active:scale-90 ${
+                                isCustom
+                                  ? 'bg-purple-500 text-white shadow-md shadow-purple-500/30 scale-105'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 hover:-translate-y-0.5'
+                              }`}
+                            >
+                              Lainnya
+                            </button>
+                          </div>
+                          {isCustom && (
+                            <input
+                              type="number"
+                              value={installmentForm.tenor}
+                              onChange={e => setInstallmentForm({ ...installmentForm, tenor: e.target.value })}
+                              placeholder="Mis. 15"
+                              min={1}
+                              autoFocus
+                              className="mt-2 w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white border border-purple-300 dark:border-purple-700 focus:outline-none focus:border-purple-500"
+                            />
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                <div>
                       <label className="block text-[10px] font-semibold mb-1 text-slate-600 dark:text-slate-400">Jatuh tempo</label>
                       <input type="number" value={installmentForm.dueDate}
                         onChange={e => setInstallmentForm({ ...installmentForm, dueDate: e.target.value })}
@@ -4767,8 +4863,8 @@ const isDayActive = (day: number) => {
                   </label>
 
                   <div className="flex gap-2">
-                    <button onClick={handleAddInstallment} className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold active:scale-95">Simpan</button>
-                    <button onClick={() => setShowInstallmentForm(false)} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
+                    <button onClick={editingInstallmentId ? handleUpdateInstallment : handleAddInstallment} className={`flex-1 text-white py-3 rounded-xl font-semibold active:scale-95 ${editingInstallmentId ? 'bg-blue-500' : 'bg-green-500'}`}>{editingInstallmentId ? '✏️ Update Cicilan' : '➕ Simpan Cicilan'}</button>
+                    <button onClick={() => { setEditingInstallmentId(null); setShowInstallmentForm(false); }} className="px-4 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl active:scale-95">Batal</button>
                   </div>
                 </div>
               )}
@@ -4798,10 +4894,17 @@ const isDayActive = (day: number) => {
                               </p>
                             </div>
                           </div>
-                          <button onClick={() => handleDeleteInstallment(i.id)}
-                            className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90 shrink-0">
+                          <div className="flex gap-1">
+                          <button onClick={() => setHistoryInstallmentId(i.id)} title="Riwayat pembayaran" className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg active:scale-90">
+                            <Clock className="w-4 h-4 text-slate-500" />
+                          </button>
+                          <button onClick={() => handleEditInstallment(i)} title="Edit cicilan" className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg active:scale-90">
+                            <Edit2 className="w-3.5 h-3.5 text-blue-500" />
+                          </button>
+                          <button onClick={() => handleDeleteInstallment(i.id)} title="Hapus jadwal" className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg active:scale-90">
                             <Trash2 className="w-4 h-4 text-red-500" />
                           </button>
+                        </div>
                         </div>
 
                         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden mb-2">
@@ -4938,6 +5041,119 @@ const isDayActive = (day: number) => {
             </div>
           )}
         </main>
+
+        {/* ✅ MODAL BAYAR CICILAN */}
+{payingInstallmentId && (() => {
+  const inst = installments.find(i => i.id === payingInstallmentId);
+  if (!inst) return null;
+  const pct = (inst.paidMonths / inst.tenor) * 100;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => setPayingInstallmentId(null)}>
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 border-t sm:border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-lg text-slate-900 dark:text-white">💰 Bayar Cicilan</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{inst.name}</p>
+          </div>
+          <button onClick={() => setPayingInstallmentId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
+        </div>
+        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-3">
+          <div className="flex justify-between text-xs mb-1"><span className="text-slate-500 dark:text-slate-400">Progress</span><span className="font-bold text-slate-900 dark:text-white">{pct.toFixed(0)}%</span></div>
+          <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2"><div className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%` }} /></div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Akan dicatat sebagai bulan ke-{inst.paidMonths + 1} dari {inst.tenor} • Cicilan {formatCurrency(inst.monthlyPayment)}/bln</p>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Nominal</label>
+          <input type="text" value={formatNominalDisplay(payingAmount)} onChange={(e) => setPayingAmount(parseNominal(e.target.value).toString())} placeholder="Rp 0" inputMode="numeric" autoFocus className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-base font-bold text-slate-900 dark:text-white" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Tanggal bayar</label>
+          <input type="date" value={payingDate} onChange={(e) => setPayingDate(e.target.value)} className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 text-slate-600 dark:text-slate-300">Catatan <span className="text-slate-400 font-normal">(opsional, mis. “top-up ShopeePay dari istri”)</span></label>
+          <input type="text" value={payingNote} onChange={(e) => setPayingNote(e.target.value)} placeholder="Opsional" className="w-full bg-slate-100 dark:bg-slate-700 rounded-xl px-3 py-3 text-sm text-slate-900 dark:text-white" />
+        </div>
+        <button onClick={handlePayInstallment} className="w-full bg-green-500 text-white py-3.5 rounded-xl font-bold active:scale-95 transition-transform shadow-lg shadow-green-500/20">✅ Catat Pembayaran</button>
+      </div>
+    </div>
+  );
+})()}
+
+{/* ✅ MODAL RIWAYAT PEMBAYARAN — dibaca langsung dari transaksi nyata (anti-desinkron) */}
+{historyInstallmentId && (() => {
+  const inst = installments.find(x => x.id === historyInstallmentId);
+  if (!inst) return null;
+  // Sumber kebenaran tunggal: transaksi ber-tag cicilan ini yang benar-benar tercatat
+  const pays = transactions
+    .filter(t => (t.notes || '').includes(`[cicilan_pay:${inst.id}]`))
+    .map(t => {
+      const m = (t.description || '').match(/\((\d+)\/\d+\)/);
+      return {
+        id: t.id,
+        date: t.date,
+        amount: t.amount,
+        monthIndex: m ? parseInt(m[1]) : 0,
+      };
+    })
+    .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime());
+  const totalPaid = pays.reduce((s, p) => s + p.amount, 0);
+  const avg = pays.length > 0 ? totalPaid / pays.length : 0;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={() => setHistoryInstallmentId(null)}>
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 space-y-4 max-h-[85vh] overflow-y-auto border-t sm:border border-slate-200 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between sticky top-0 bg-white dark:bg-slate-800 pb-2 z-10">
+          <div>
+            <h3 className="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">📜 Riwayat Pembayaran</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{inst.name}</p>
+          </div>
+          <button onClick={() => setHistoryInstallmentId(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full"><X className="w-5 h-5 text-slate-500" /></button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-2.5">
+            <p className="text-[9px] text-green-600 dark:text-green-400 uppercase font-bold">Terbayar</p>
+            <p className="text-sm font-bold text-green-700 dark:text-green-300">{formatCurrency(totalPaid)}</p>
+          </div>
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-2.5">
+            <p className="text-[9px] text-blue-600 dark:text-blue-400 uppercase font-bold">Rata²</p>
+            <p className="text-sm font-bold text-blue-700 dark:text-blue-300">{formatCurrency(avg)}</p>
+          </div>
+          <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-2.5">
+            <p className="text-[9px] text-purple-600 dark:text-purple-400 uppercase font-bold">Transaksi</p>
+            <p className="text-sm font-bold text-purple-700 dark:text-purple-300">{pays.length}×</p>
+          </div>
+        </div>
+        {pays.length === 0 ? (
+          <div className="text-center py-8 bg-slate-50 dark:bg-slate-700/30 rounded-2xl border border-dashed border-slate-300 dark:border-slate-600">
+            <div className="text-3xl mb-2">🗓️</div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada pembayaran tercatat.</p>
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Tekan “💰 Bayar Sekarang” untuk mencatat pembayaran pertama.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {[...pays].reverse().map((p) => (
+              <div key={p.id} className="flex items-center gap-3 bg-slate-50 dark:bg-slate-700/40 rounded-xl p-3 border border-slate-100 dark:border-slate-700">
+                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {p.monthIndex > 0 && (
+                      <span className="text-[10px] font-bold text-white bg-purple-500 px-1.5 py-0.5 rounded-full">Bulan {p.monthIndex}/{inst.tenor}</span>
+                    )}
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">{format(parseLocalDate(p.date), 'dd MMM yyyy', { locale: id })}</span>
+                  </div>
+                </div>
+                <span className="text-sm font-extrabold text-green-600 dark:text-green-400 tabular-nums whitespace-nowrap">{formatCurrency(p.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+})()}
+
 
       {/* MODAL DETAIL BUDGET */}
       {viewingBudget && (
